@@ -1,5 +1,5 @@
 <template>
-  <main class="pd-play" :data-screen="screenName">
+  <main class="pd-play" :class="{ 'is-busy': busy }" :data-screen="screenName">
     <header class="pd-top">
       <button type="button" class="pd-brand" @click="game.goHome()">
         <span>Puzzle</span>
@@ -123,6 +123,7 @@
           <span
             class="pd-flip"
             :class="{ 'is-turning': flipping.has(placed.tile.id) }"
+            :style="flipDelay(placed.tile.id)"
           >
             <span class="pd-backface" />
             <span class="pd-front">
@@ -256,14 +257,22 @@ import {
   magicComplete,
   moveGroup
 } from "@/game/engine";
+import { cellUnderCenter, landingCell } from "@/game/drop";
 import { praiseWord, starsFor } from "@/game/feedback";
-import { scaled } from "@/game/motion";
+import {
+  EASE_GRAVITY,
+  EASE_OUT,
+  EASE_SPRING,
+  scaled,
+  scaledDelay
+} from "@/game/motion";
 import { muted, sfx, toggleMuted } from "@/game/sound";
 import { useGameStore } from "@/stores/game-store";
 import type {
   Board,
   CellPos,
   Completion,
+  FallMove,
   SettleStep,
   Tile
 } from "@/game/types";
@@ -288,6 +297,14 @@ const showGood = ref(false);
 const shrinking = ref(false);
 const praise = ref("Good");
 const flipping = ref(new Set<string>());
+const dropDelay = ref<Record<string, number>>({});
+const LIFT = 10;
+const dragMotion = { dx: 0, dy: 0 };
+
+interface Point {
+  x: number;
+  y: number;
+}
 const hover = ref<CellPos | null>(null);
 const usedHint = ref(false);
 const usedMagic = ref(false);
@@ -304,8 +321,6 @@ const drag = ref<{
   anchorRow: number;
   anchorCol: number;
   members: { id: string; row: number; col: number }[];
-  dx: number;
-  dy: number;
   startX: number;
   startY: number;
   pointer: number;
@@ -404,20 +419,43 @@ function isLifted(placed: Placed): boolean {
   );
 }
 
+function originOf(row: number, col: number): Point {
+  const shift = shiftOf(row, col);
+  return {
+    x: col * strideX.value + shift.x,
+    y: row * strideY.value + shift.y
+  };
+}
+
+function pose(point: Point, scale = 1): string {
+  return `translate(${point.x}px, ${point.y}px) scale(${scale})`;
+}
+
+function isDragged(id: string): boolean {
+  return drag.value?.members.some(member => member.id === id) ?? false;
+}
+
+function visualOf(row: number, col: number, id: string): Point {
+  const home = originOf(row, col);
+  if (!isDragged(id)) return home;
+  return { x: home.x + dragMotion.dx, y: home.y + dragMotion.dy - LIFT };
+}
+
 function tileStyle(placed: Placed) {
-  const shift = shiftOf(placed.row, placed.col);
-  const current = drag.value;
-  const lifted = current?.members.some(member => member.id === placed.tile.id)
-    ? current
-    : null;
-  const x = placed.col * strideX.value + shift.x + (lifted ? lifted.dx : 0);
-  const y = placed.row * strideY.value + shift.y + (lifted ? lifted.dy : 0);
+  const point = visualOf(placed.row, placed.col, placed.tile.id);
+  const lifted = isDragged(placed.tile.id);
+  const falling = flipping.value.has(placed.tile.id);
   return {
     width: `${cellW.value}px`,
     height: `${cellH.value}px`,
-    transform: `translate(${x}px, ${y}px)`,
-    zIndex: lifted ? 6 : isJoined(placed) ? 2 : 1
+    transform: pose(point, lifted ? 1.045 : 1),
+    zIndex: lifted ? 6 : falling ? 5 : isJoined(placed) ? 2 : 1
   };
+}
+
+function flipDelay(id: string): { animationDelay: string } | undefined {
+  const delay = dropDelay.value[id];
+  return delay ? { animationDelay: `${delay}ms` } : undefined;
 }
 
 function cropStyle(tile: Tile) {
@@ -454,46 +492,87 @@ function measure() {
   cellH.value = (board.clientHeight - gap * (BOARD_ROWS - 1)) / BOARD_ROWS;
 }
 
-function positions(): Map<string, { left: number; top: number }> {
-  const map = new Map<string, { left: number; top: number }>();
-  const board = boardEl.value;
-  if (!board) return map;
-  const origin = board.getBoundingClientRect();
-  for (const el of board.querySelectorAll<HTMLElement>("[data-tile]")) {
-    const id = el.dataset.tile;
-    if (!id) continue;
-    const rect = el.getBoundingClientRect();
-    map.set(id, { left: rect.left - origin.left, top: rect.top - origin.top });
+function captureVisual(): Map<string, Point> {
+  const map = new Map<string, Point>();
+  for (const placed of placedTiles.value) {
+    map.set(placed.tile.id, visualOf(placed.row, placed.col, placed.tile.id));
   }
   return map;
 }
 
-async function glide(
-  before: Map<string, { left: number; top: number }>,
-  fromStack: Set<string>
-) {
+function tileElement(id: string): HTMLElement | null {
+  const board = boardEl.value;
+  if (!board) return null;
+  return board.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"]`);
+}
+
+function stopTileMotion() {
+  boardEl.value?.querySelectorAll(".pd-tile").forEach(el => {
+    el.getAnimations().forEach(animation => animation.cancel());
+  });
+}
+
+function stackOrigin(col: number): Point {
+  const board = boardEl.value;
+  const pile = stageEl.value?.querySelectorAll<HTMLElement>(".pd-stack")[col];
+  if (!board || !pile)
+    return { x: col * strideX.value, y: -cellH.value * 0.85 };
+  const boardRect = board.getBoundingClientRect();
+  const pileRect = pile.getBoundingClientRect();
+  return {
+    x: pileRect.left - boardRect.left + (pileRect.width - cellW.value) / 2,
+    y: pileRect.top - boardRect.top - cellH.value * 0.15
+  };
+}
+
+function stackOrder(falls: FallMove[]): Map<string, number> {
+  const seen = [0, 0, 0, 0];
+  const order = new Map<string, number>();
+  for (const fall of falls) {
+    if (!("stack" in fall.from)) continue;
+    const column = fall.from.stack;
+    const index = seen[column] ?? 0;
+    seen[column] = index + 1;
+    order.set(fall.tileId, index);
+  }
+  return order;
+}
+
+async function glide(before: Map<string, Point>, falls: FallMove[]) {
   await nextTick();
+  stopTileMotion();
+  const dropping = stackOrder(falls);
+  const origins = new Map<number, Point>();
+  const animations: Animation[] = [];
   const board = boardEl.value;
   if (!board) return;
-  const origin = board.getBoundingClientRect();
-  const animations: Animation[] = [];
   for (const el of board.querySelectorAll<HTMLElement>("[data-tile]")) {
     const id = el.dataset.tile;
-    if (!id) continue;
-    const rect = el.getBoundingClientRect();
-    const left = rect.left - origin.left;
-    const top = rect.top - origin.top;
-    const distance = Math.max(rect.height + 36, top + rect.height + 20);
-    if (fromStack.has(id)) {
+    const row = Number(el.dataset.row);
+    const col = Number(el.dataset.col);
+    if (!id || Number.isNaN(row) || Number.isNaN(col)) continue;
+    const to = originOf(row, col);
+    const dropIndex = dropping.get(id);
+    if (dropIndex !== undefined) {
+      const from = origins.get(col) ?? stackOrigin(col);
+      origins.set(col, from);
       animations.push(
         el.animate(
           [
-            { transform: `translate(${left}px, ${top - distance}px)` },
-            { transform: `translate(${left}px, ${top}px)` }
+            { transform: pose(from, 0.94), offset: 0 },
+            {
+              transform: pose(
+                { x: to.x, y: to.y + Math.min(14, cellH.value * 0.08) },
+                1.02
+              ),
+              offset: 0.8,
+              easing: EASE_GRAVITY
+            },
+            { transform: pose(to, 1), offset: 1, easing: EASE_OUT }
           ],
           {
-            duration: scaled(460),
-            easing: "cubic-bezier(.45,.05,.85,.45)",
+            duration: scaled(540),
+            delay: dropIndex * scaledDelay(48),
             fill: "backwards"
           }
         )
@@ -501,18 +580,16 @@ async function glide(
       continue;
     }
     const prev = before.get(id);
-    if (!prev || (prev.left === left && prev.top === top)) continue;
+    if (
+      !prev ||
+      (Math.abs(prev.x - to.x) < 0.5 && Math.abs(prev.y - to.y) < 0.5)
+    ) {
+      continue;
+    }
     animations.push(
       el.animate(
-        [
-          { transform: `translate(${prev.left}px, ${prev.top}px)` },
-          { transform: `translate(${left}px, ${top}px)` }
-        ],
-        {
-          duration: scaled(240),
-          easing: "cubic-bezier(.2,.8,.2,1)",
-          fill: "backwards"
-        }
+        [{ transform: pose(prev, 1.04) }, { transform: pose(to, 1) }],
+        { duration: scaled(300), easing: EASE_SPRING, fill: "backwards" }
       )
     );
   }
@@ -528,41 +605,52 @@ function joinedCount(board: Board): number {
   return findGroups(board).reduce((sum, group) => sum + group.cells.length, 0);
 }
 
-async function userMove(from: CellPos, to: CellPos) {
-  if (busy.value || game.winOpen) return;
-  const beforeCount = joinedCount(game.view.board);
-  const before = positions();
-  const result = moveGroup(game.view, from, to);
-  if (!result.changed) return;
+async function userMove(
+  from: CellPos,
+  to: CellPos,
+  fromVisual?: Map<string, Point>
+) {
+  if (game.winOpen) return;
+  const releaseBusy = !busy.value;
   busy.value = true;
-  const merged = result.steps.some(step => step.kind === "merge");
-  const grew = joinedCount(result.boardAfterSwap) > beforeCount;
-  if (grew && !merged) sfx.join();
-  else sfx.swap();
-  if (grew) {
-    const ids = new Set<string>();
-    for (const group of findGroups(result.boardAfterSwap)) {
-      for (const cell of group.cells) {
-        const tile = result.boardAfterSwap[cell.row]?.[cell.col];
-        if (tile) ids.add(tile.id);
-      }
+  try {
+    const beforeCount = joinedCount(game.view.board);
+    const before = fromVisual ?? captureVisual();
+    const result = moveGroup(game.view, from, to);
+    if (!result.changed) {
+      await glide(before, []);
+      return;
     }
-    snapping.value = ids;
-    window.setTimeout(() => {
-      snapping.value = new Set();
-    }, scaled(320));
+    const merged = result.steps.some(step => step.kind === "merge");
+    const grew = joinedCount(result.boardAfterSwap) > beforeCount;
+    if (grew && !merged) sfx.join();
+    else sfx.swap();
+    if (grew) {
+      const ids = new Set<string>();
+      for (const group of findGroups(result.boardAfterSwap)) {
+        for (const cell of group.cells) {
+          const tile = result.boardAfterSwap[cell.row]?.[cell.col];
+          if (tile) ids.add(tile.id);
+        }
+      }
+      snapping.value = ids;
+      window.setTimeout(() => {
+        snapping.value = new Set();
+      }, scaled(360));
+    }
+    game.hinting = [];
+    game.view = { ...game.view, board: result.boardAfterSwap };
+    await glide(before, []);
+    await play(result.steps);
+  } finally {
+    if (releaseBusy) busy.value = false;
   }
-  game.hinting = [];
-  game.view = { ...game.view, board: result.boardAfterSwap };
-  await glide(before, new Set());
-  await play(result.steps);
-  busy.value = false;
 }
 
 async function onMagic() {
   if (busy.value || game.winOpen || !game.spend("magic")) return;
   usedMagic.value = true;
-  const before = positions();
+  const before = captureVisual();
   const result = magicComplete(game.view);
   if (!result.changed) {
     game.save({ ...game.progress, magic: game.progress.magic + 1 });
@@ -571,7 +659,7 @@ async function onMagic() {
   busy.value = true;
   game.hinting = [];
   game.view = { ...game.view, board: result.boardAfterSwap };
-  await glide(before, new Set());
+  await glide(before, []);
   await play(result.steps);
   busy.value = false;
 }
@@ -606,21 +694,28 @@ async function play(steps: SettleStep[]) {
         live.value = praise.value;
         await wait(scaled(620));
         shrinking.value = true;
-        await wait(scaled(380));
+        await wait(scaled(480));
         showGood.value = false;
         merge.value = null;
         shrinking.value = false;
       }
     } else if (step.kind === "refill") {
-      const before = positions();
-      const fromStack = new Set(
-        step.falls.filter(move => "stack" in move.from).map(move => move.tileId)
-      );
-      flipping.value = fromStack;
+      const before = captureVisual();
+      const delays: Record<string, number> = {};
+      const seen = [0, 0, 0, 0];
+      for (const fall of step.falls) {
+        if (!("stack" in fall.from)) continue;
+        const column = fall.from.stack;
+        const index = seen[column] ?? 0;
+        seen[column] = index + 1;
+        delays[fall.tileId] = index * scaledDelay(48);
+      }
+      dropDelay.value = delays;
+      flipping.value = new Set(Object.keys(delays));
       game.view = { ...game.view, board: step.board, stacks: step.stacks };
-      await glide(before, fromStack);
-      await wait(scaled(80));
+      await glide(before, step.falls);
       flipping.value = new Set();
+      dropDelay.value = {};
     } else if (step.kind === "win") {
       stars.value = starsFor(usedHint.value, usedMagic.value);
       live.value = "Level clear";
@@ -630,27 +725,31 @@ async function play(steps: SettleStep[]) {
   }
 }
 
-function cellUnder(clientX: number, clientY: number): CellPos | null {
-  const board = boardEl.value;
+function paintDrag() {
   const current = drag.value;
-  if (!board || !current) return null;
-  const rect = board.getBoundingClientRect();
-  const col = Math.floor((clientX - rect.left) / strideX.value);
-  const row = Math.floor((clientY - rect.top) / strideY.value);
-  if (row < 0 || col < 0 || row >= BOARD_ROWS || col >= BOARD_COLS) return null;
-  const dRow = row - current.anchorRow;
-  const dCol = col - current.anchorCol;
-  const fits = current.members.every(member => {
-    const nextRow = member.row + dRow;
-    const nextCol = member.col + dCol;
-    return (
-      nextRow >= 0 &&
-      nextCol >= 0 &&
-      nextRow < BOARD_ROWS &&
-      nextCol < BOARD_COLS
+  if (!current) return;
+  for (const member of current.members) {
+    const el = tileElement(member.id);
+    if (!el) continue;
+    const home = originOf(member.row, member.col);
+    el.style.transform = pose(
+      { x: home.x + dragMotion.dx, y: home.y + dragMotion.dy - LIFT },
+      1.045
     );
-  });
-  return fits ? { row, col } : null;
+  }
+}
+
+function hitFromMotion(): CellPos | null {
+  const current = drag.value;
+  if (!current) return null;
+  const home = originOf(current.anchorRow, current.anchorCol);
+  return cellUnderCenter(
+    home.x + dragMotion.dx + cellW.value / 2,
+    home.y + dragMotion.dy - LIFT + cellH.value / 2,
+    cellW.value,
+    cellH.value,
+    gap
+  );
 }
 
 function onPointerDown(event: PointerEvent, placed: Placed) {
@@ -667,39 +766,91 @@ function onPointerDown(event: PointerEvent, placed: Placed) {
       (member): member is { id: string; row: number; col: number } =>
         member !== null
     );
+  dragMotion.dx = 0;
+  dragMotion.dy = 0;
   drag.value = {
     anchorRow: placed.row,
     anchorCol: placed.col,
     members,
-    dx: 0,
-    dy: 0,
     startX: event.clientX,
     startY: event.clientY,
     pointer: event.pointerId,
     moved: false
   };
+  const pointer = event.pointerId;
+  void nextTick(() => {
+    const current = drag.value;
+    if (!current || current.pointer !== pointer || current.moved) return;
+    for (const member of current.members) {
+      const el = tileElement(member.id);
+      if (!el) continue;
+      const home = originOf(member.row, member.col);
+      el.animate(
+        [
+          { transform: pose(home, 1) },
+          { transform: pose({ x: home.x, y: home.y - LIFT }, 1.045) }
+        ],
+        { duration: scaled(140), easing: EASE_OUT, fill: "both" }
+      );
+    }
+  });
 }
 
 function onPointerMove(event: PointerEvent) {
   const current = drag.value;
-  if (!current || event.pointerId !== current.pointer) return;
+  if (!current || event.pointerId !== current.pointer || busy.value) return;
   const dx = event.clientX - current.startX;
   const dy = event.clientY - current.startY;
-  if (Math.hypot(dx, dy) > 6) current.moved = true;
-  current.dx = dx;
-  current.dy = dy;
-  hover.value = cellUnder(event.clientX, event.clientY);
+  if (Math.hypot(dx, dy) > 6 && !current.moved) {
+    current.moved = true;
+    stopTileMotion();
+  }
+  dragMotion.dx = dx;
+  dragMotion.dy = dy;
+  paintDrag();
+  const hit = current.moved ? hitFromMotion() : null;
+  const dest = hit
+    ? landingCell(
+        { row: current.anchorRow, col: current.anchorCol },
+        hit,
+        current.members
+      )
+    : null;
+  const same = dest?.row === hover.value?.row && dest?.col === hover.value?.col;
+  if (!same) hover.value = dest;
 }
 
 async function onPointerUp(event: PointerEvent) {
   const current = drag.value;
-  if (!current || event.pointerId !== current.pointer) return;
-  const dest = current.moved ? cellUnder(event.clientX, event.clientY) : null;
+  if (!current || event.pointerId !== current.pointer || busy.value) return;
+  stopTileMotion();
+  const hit = current.moved ? hitFromMotion() : null;
+  const dest = hit
+    ? landingCell(
+        { row: current.anchorRow, col: current.anchorCol },
+        hit,
+        current.members
+      )
+    : null;
+  const fromVisual = captureVisual();
   drag.value = null;
   hover.value = null;
-  if (!dest) return;
-  if (dest.row === current.anchorRow && dest.col === current.anchorCol) return;
-  await userMove({ row: current.anchorRow, col: current.anchorCol }, dest);
+  dragMotion.dx = 0;
+  dragMotion.dy = 0;
+  if (!dest) {
+    busy.value = true;
+    try {
+      await glide(fromVisual, []);
+    } finally {
+      busy.value = false;
+    }
+    return;
+  }
+  await userMove(
+    { row: current.anchorRow, col: current.anchorCol },
+    dest,
+    fromVisual
+  );
 }
 
 function pickPhoto() {

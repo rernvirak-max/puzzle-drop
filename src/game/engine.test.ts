@@ -178,6 +178,56 @@ describe("settle and refill", () => {
     expect(result.steps.some(step => step.kind === "win")).toBe(false);
     expect(result.state.board.some(row => row.some(Boolean))).toBe(true);
   });
+
+  it("drops each reserve piece into its own slot without losing or doubling tiles", () => {
+    const board = blank();
+    board[2]![0] = tile("cat", 0, 0);
+    board[2]![1] = tile("cat", 0, 1);
+    board[3]![0] = tile("cat", 1, 0);
+    board[3]![1] = tile("cat", 1, 1);
+    const above = tile("keep", 0, 0);
+    const lower = tile("keep", 0, 1);
+    const side = tile("keep", 1, 0);
+    board[0]![0] = above;
+    board[1]![0] = lower;
+    board[0]![2] = side;
+    const first = tile("stack", 0, 0);
+    const second = tile("stack", 0, 1);
+    const other = tile("stack", 1, 0);
+    const result = settle(state(board, [[first, second], [], [other], []]));
+    const refill = result.steps.find(step => step.kind === "refill");
+    expect(refill?.kind).toBe("refill");
+    if (refill?.kind !== "refill") return;
+    const landed = new Set<string>();
+    for (const fall of refill.falls) {
+      const key = `${fall.to.row},${fall.to.col}`;
+      expect(landed.has(key)).toBe(false);
+      landed.add(key);
+      expect(refill.board[fall.to.row]?.[fall.to.col]?.id).toBe(fall.tileId);
+    }
+    expect(refill.falls).toEqual(
+      expect.arrayContaining([
+        { tileId: first.id, to: { row: 1, col: 0 }, from: { stack: 0 } },
+        { tileId: second.id, to: { row: 0, col: 0 }, from: { stack: 0 } },
+        { tileId: other.id, to: { row: 2, col: 2 }, from: { stack: 2 } }
+      ])
+    );
+    const ids = result.state.board.flatMap(row =>
+      row.flatMap(cell => (cell ? [cell.id] : []))
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        above.id,
+        lower.id,
+        side.id,
+        first.id,
+        second.id,
+        other.id
+      ])
+    );
+    expect(ids).toHaveLength(6);
+  });
 });
 
 describe("partial groups", () => {
