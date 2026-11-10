@@ -2,7 +2,8 @@
   <main class="pd-play" :data-screen="screenName">
     <header class="pd-top">
       <button type="button" class="pd-brand" @click="game.goHome()">
-        Drop
+        <span>Puzzle</span>
+        <span>Drop</span>
       </button>
       <div class="pd-level-block">
         <strong>Level {{ game.levelLabel }}</strong>
@@ -87,7 +88,6 @@
       <div
         ref="boardEl"
         class="pd-board"
-        :style="{ width: `${boardWidth}px`, height: `${boardHeight}px` }"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
         @pointercancel="onPointerUp"
@@ -314,15 +314,8 @@ const drag = ref<{
 
 const strideX = computed(() => cellW.value + gap);
 const strideY = computed(() => cellH.value + gap);
-const boardWidth = computed(
-  () => BOARD_COLS * cellW.value + (BOARD_COLS - 1) * gap
-);
-const boardHeight = computed(
-  () => BOARD_ROWS * cellH.value + (BOARD_ROWS - 1) * gap
-);
 const gridStyle = computed(() => ({
-  width: `${boardWidth.value}px`,
-  gridTemplateColumns: `repeat(${BOARD_COLS}, ${cellW.value}px)`,
+  gridTemplateColumns: `repeat(${BOARD_COLS}, minmax(0, 1fr))`,
   columnGap: `${gap}px`
 }));
 const slots = computed(() => {
@@ -455,26 +448,10 @@ function isHinted(placed: Placed): boolean {
 }
 
 function measure() {
-  const stage = stageEl.value;
-  if (!stage) return;
-  const style = getComputedStyle(stage);
-  const padX =
-    Number.parseFloat(style.paddingLeft) +
-    Number.parseFloat(style.paddingRight);
-  const padY =
-    Number.parseFloat(style.paddingTop) +
-    Number.parseFloat(style.paddingBottom);
-  const stacks = stage.querySelector(".pd-stacks");
-  const stacksH = stacks instanceof HTMLElement ? stacks.offsetHeight + 4 : 38;
-  const availW = Math.max(220, stage.clientWidth - padX);
-  const availH = Math.max(280, stage.clientHeight - padY - stacksH);
-  const width = Math.floor((availW - gap * (BOARD_COLS - 1)) / BOARD_COLS);
-  const heightRoom = Math.floor((availH - gap * (BOARD_ROWS - 1)) / BOARD_ROWS);
-  cellW.value = Math.max(64, Math.min(width, 160));
-  cellH.value = Math.max(
-    cellW.value,
-    Math.min(heightRoom, Math.floor(cellW.value * 1.72), 230)
-  );
+  const board = boardEl.value;
+  if (!board || board.clientWidth < 80 || board.clientHeight < 80) return;
+  cellW.value = (board.clientWidth - gap * (BOARD_COLS - 1)) / BOARD_COLS;
+  cellH.value = (board.clientHeight - gap * (BOARD_ROWS - 1)) / BOARD_ROWS;
 }
 
 function positions(): Map<string, { left: number; top: number }> {
@@ -752,9 +729,12 @@ let observer: ResizeObserver | null = null;
 
 onMounted(() => {
   measure();
-  if (stageEl.value) {
+  const watched = boardEl.value ?? stageEl.value;
+  if (watched) {
     observer = new ResizeObserver(() => measure());
-    observer.observe(stageEl.value);
+    observer.observe(watched);
+    if (stageEl.value && stageEl.value !== watched)
+      observer.observe(stageEl.value);
   }
   if (!import.meta.env.DEV) return;
   window.__puzzle = {
