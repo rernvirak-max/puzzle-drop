@@ -15,22 +15,24 @@
 interface ImportMetaEnv {}
 
 interface PuzzleDebug {
-  prepare: () => {
+  prepare?: () => {
     from: { row: number; col: number };
     to: { row: number; col: number };
   } | null;
-  armWin: () => {
+  armWin?: () => {
     from: { row: number; col: number };
     to: { row: number; col: number };
   };
-  swap: (
+  swap?: (
     rowA: number,
     colA: number,
     rowB: number,
     colB: number
   ) => Promise<void>;
-  busy: () => boolean;
-  good: () => boolean;
+  busy?: () => boolean;
+  good?: () => boolean;
+  home?: () => void;
+  play?: () => void;
 }
 
 interface Window {

@@ -66,5 +66,7 @@ export interface LevelPicture {
 
 export interface LevelDef {
   level: number;
+  name?: string;
+  pack?: string;
   pictures: LevelPicture[];
 }

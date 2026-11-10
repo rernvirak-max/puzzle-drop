@@ -1,26 +1,29 @@
 <template>
-  <main class="pd-app" :data-screen="screenName">
+  <main class="pd-play" :data-screen="screenName">
     <header class="pd-top">
-      <button
-        type="button"
-        class="pd-gear"
-        aria-label="Settings"
-        @click="game.openSettings()"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.4 3.1-.1-1.6-2-.8a7.2 7.2 0 0 0-.8-1.4l.8-2-1.4-1.4-2 .8a7.2 7.2 0 0 0-1.4-.8l-.8-2h-2l-.8 2a7.2 7.2 0 0 0-1.4.8l-2-.8L4.7 5.8l.8 2c-.3.4-.6.9-.8 1.4l-2 .8-.1 1.6.1 1.6 2 .8c.2.5.5 1 .8 1.4l-.8 2 1.4 1.4 2-.8c.4.3.9.6 1.4.8l.8 2h2l.8-2c.5-.2 1-.5 1.4-.8l2 .8 1.4-1.4-.8-2c.3-.4.6-.9.8-1.4l2-.8.1-1.6Z"
-          />
-        </svg>
+      <button type="button" class="pd-brand" @click="game.goHome()">
+        Drop
       </button>
-      <div class="pd-level">
-        <span>Level</span>
-        <strong>{{ game.levelLabel }}</strong>
+      <div class="pd-level-block">
+        <strong>Level {{ game.levelLabel }}</strong>
+        <span>{{ game.levelName }}</span>
       </div>
-      <div class="pd-powers">
+      <div class="pd-tools">
         <button
           type="button"
-          class="pd-power"
+          class="pd-icon"
+          :aria-label="muted ? 'Unmute' : 'Mute'"
+          @click="toggleMuted()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 9h4l5-4v14l-5-4H4V9Zm11.5 3a3.5 3.5 0 0 0-1.5-2.9v5.8A3.5 3.5 0 0 0 15.5 12Z"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="pd-icon"
           aria-label="Magic, finish one picture"
           :disabled="game.progress.magic <= 0 || busy"
           @click="onMagic"
@@ -35,7 +38,7 @@
         </button>
         <button
           type="button"
-          class="pd-power"
+          class="pd-icon"
           aria-label="Hint, highlight one picture"
           :disabled="game.progress.hint <= 0 || busy"
           @click="onHint"
@@ -46,6 +49,18 @@
             />
           </svg>
           <span>{{ game.progress.hint }}</span>
+        </button>
+        <button
+          type="button"
+          class="pd-icon"
+          aria-label="Settings"
+          @click="game.openSettings()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 8.5a3.5 3.5 0 1 0 .1 7 3.5 3.5 0 0 0-.1-7Zm7.6 2.6-.9-.4a6 6 0 0 0-.4-1l.6-.8-1.4-1.4-.8.6a6 6 0 0 0-1-.4l-.4-.9h-2l-.4.9a6 6 0 0 0-1 .4l-.8-.6-1.4 1.4.6.8a6 6 0 0 0-.4 1l-.9.4v2l.9.4a6 6 0 0 0 .4 1l-.6.8 1.4 1.4.8-.6a6 6 0 0 0 1 .4l.4.9h2l.4-.9a6 6 0 0 0 1-.4l.8.6 1.4-1.4-.6-.8a6 6 0 0 0 .4-1l.9-.4v-2Z"
+            />
+          </svg>
         </button>
       </div>
     </header>
@@ -62,9 +77,10 @@
             :key="layer"
             class="pd-back"
             :style="{
-              transform: `translateY(${(stackLayers(stack.length) - layer) * 13}px)`
+              transform: `translateY(${(stackLayers(stack.length) - layer) * 8}px)`
             }"
           />
+          <b v-if="stack.length">{{ stack.length }}</b>
         </div>
       </div>
 
@@ -80,6 +96,7 @@
           v-for="slot in slots"
           :key="`${slot.row}-${slot.col}`"
           class="pd-slot"
+          :class="{ 'is-target': isTarget(slot) }"
           :style="slotStyle(slot)"
         />
         <button
@@ -89,7 +106,8 @@
           class="pd-tile"
           :class="{
             'is-hint': isHinted(placed),
-            'is-lifted': drag?.id === placed.tile.id
+            'is-lifted': drag?.id === placed.tile.id,
+            'is-target': isTarget(placed)
           }"
           :data-tile="placed.tile.id"
           :data-row="placed.row"
@@ -97,12 +115,20 @@
           :style="tileStyle(placed)"
           @pointerdown="onPointerDown($event, placed)"
         >
-          <img
-            :src="game.photoSrc(placed.tile.photoId)"
-            alt=""
-            draggable="false"
-            :style="cropStyle(placed.tile)"
-          />
+          <span
+            class="pd-flip"
+            :class="{ 'is-turning': flipping.has(placed.tile.id) }"
+          >
+            <span class="pd-backface" />
+            <span class="pd-front">
+              <img
+                :src="game.photoSrc(placed.tile.photoId)"
+                alt=""
+                draggable="false"
+                :style="cropStyle(placed.tile)"
+              />
+            </span>
+          </span>
         </button>
 
         <div
@@ -112,7 +138,7 @@
           :style="mergeStyle"
         >
           <img :src="game.photoSrc(merge.photoId)" alt="" />
-          <p v-if="showGood" class="good">Good</p>
+          <p v-if="showGood" class="good">{{ praise }}</p>
         </div>
       </div>
     </div>
@@ -182,15 +208,31 @@
     </div>
 
     <div v-if="game.winOpen" class="pd-shade">
+      <div class="pd-confetti" aria-hidden="true">
+        <i
+          v-for="piece in confetti"
+          :key="piece.id"
+          :style="{
+            left: piece.left,
+            background: piece.color,
+            animationDelay: piece.delay
+          }"
+        />
+      </div>
       <section class="pd-clear" role="dialog" aria-labelledby="clear-title">
-        <p class="pd-kicker">Every stack is empty</p>
+        <p class="pd-eyebrow">Every stack is empty</p>
         <h2 id="clear-title">Level clear</h2>
-        <p
-          >Level {{ game.levelLabel }} is done. Take the next one whenever you
-          like.</p
-        >
-        <button type="button" class="pd-action" @click="game.nextLevel()">
-          Next level
+        <div class="pd-stars" :aria-label="`${stars} stars`">
+          <span
+            v-for="index in 3"
+            :key="index"
+            :class="{ 'is-on': index <= stars }"
+            >★</span
+          >
+        </div>
+        <p>{{ game.levelName }} is done.</p>
+        <button type="button" class="pd-gold" @click="game.nextLevel()">
+          Next
         </button>
       </section>
     </div>
@@ -200,6 +242,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { hintTarget, magicComplete, swapTiles } from "@/game/engine";
+import { praiseWord, starsFor } from "@/game/feedback";
+import { scaled } from "@/game/motion";
+import { muted, sfx, toggleMuted } from "@/game/sound";
 import { useGameStore } from "@/stores/game-store";
 import type { CellPos, Completion, SettleStep, Tile } from "@/game/types";
 import { BOARD_COLS, BOARD_ROWS } from "@/game/types";
@@ -220,6 +265,18 @@ const busy = ref(false);
 const merge = ref<Completion | null>(null);
 const showGood = ref(false);
 const shrinking = ref(false);
+const praise = ref("Good");
+const flipping = ref(new Set<string>());
+const hover = ref<CellPos | null>(null);
+const usedHint = ref(false);
+const usedMagic = ref(false);
+const stars = ref(3);
+const confetti = Array.from({ length: 28 }, (_, id) => ({
+  id,
+  left: `${(id * 37) % 100}%`,
+  delay: `${(id % 7) * 0.08}s`,
+  color: ["#e4b15c", "#f6efe4", "#6e2a32", "#2f6b4f"][id % 4]
+}));
 const live = ref("");
 const drag = ref<{
   id: string;
@@ -297,7 +354,7 @@ function tileStyle(placed: Placed) {
     width: `${cell.value}px`,
     height: `${cell.value}px`,
     transform: lifted
-      ? `translate(${x}px, ${y}px) scale(0.94)`
+      ? `translate(${x}px, ${y - 8}px) scale(1.06)`
       : `translate(${x}px, ${y}px)`,
     zIndex: lifted ? 6 : 1
   };
@@ -312,6 +369,14 @@ function cropStyle(tile: Tile) {
   };
 }
 
+function isTarget(slot: CellPos): boolean {
+  const over = hover.value;
+  const current = drag.value;
+  if (!over || !current) return false;
+  if (over.row === current.row && over.col === current.col) return false;
+  return over.row === slot.row && over.col === slot.col;
+}
+
 function isHinted(placed: Placed): boolean {
   return game.hinting.some(
     cellPos => cellPos.row === placed.row && cellPos.col === placed.col
@@ -321,11 +386,12 @@ function isHinted(placed: Placed): boolean {
 function measure() {
   const stage = stageEl.value;
   if (!stage) return;
-  const width = stage.clientWidth;
-  cell.value = Math.max(
-    64,
-    Math.floor((width - gap * (BOARD_COLS - 1)) / BOARD_COLS)
-  );
+  const top = stage.getBoundingClientRect().top;
+  const availH = Math.max(240, window.innerHeight - top - 96);
+  const availW = Math.max(240, stage.clientWidth - 8);
+  const byWidth = Math.floor((availW - gap * (BOARD_COLS - 1)) / BOARD_COLS);
+  const byHeight = Math.floor((availH - gap * (BOARD_ROWS - 1)) / BOARD_ROWS);
+  cell.value = Math.max(72, Math.min(byWidth, byHeight, 168));
 }
 
 function positions(): Map<string, { left: number; top: number }> {
@@ -366,7 +432,7 @@ async function glide(
             { transform: `translate(${left}px, ${top}px)` }
           ],
           {
-            duration: 460,
+            duration: scaled(460),
             easing: "cubic-bezier(.45,.05,.85,.45)",
             fill: "backwards"
           }
@@ -383,7 +449,7 @@ async function glide(
           { transform: `translate(${left}px, ${top}px)` }
         ],
         {
-          duration: 240,
+          duration: scaled(240),
           easing: "cubic-bezier(.2,.8,.2,1)",
           fill: "backwards"
         }
@@ -404,6 +470,7 @@ async function userSwap(from: CellPos, to: CellPos) {
   const result = swapTiles(game.view, from, to);
   if (!result.changed) return;
   busy.value = true;
+  sfx.swap();
   game.hinting = [];
   game.view = { ...game.view, board: result.boardAfterSwap };
   await glide(before, new Set());
@@ -413,6 +480,7 @@ async function userSwap(from: CellPos, to: CellPos) {
 
 async function onMagic() {
   if (busy.value || game.winOpen || !game.spend("magic")) return;
+  usedMagic.value = true;
   const before = positions();
   const result = magicComplete(game.view);
   if (!result.changed) {
@@ -429,6 +497,7 @@ async function onMagic() {
 
 function onHint() {
   if (busy.value || game.winOpen || !game.spend("hint")) return;
+  usedHint.value = true;
   const target = hintTarget(game.view);
   if (!target) {
     game.save({ ...game.progress, hint: game.progress.hint + 1 });
@@ -441,18 +510,22 @@ function onHint() {
 }
 
 async function play(steps: SettleStep[]) {
+  let chain = 0;
   for (const step of steps) {
     if (step.kind === "merge") {
       for (const completion of step.completions) {
+        praise.value = praiseWord(chain);
+        chain += 1;
         merge.value = completion;
         shrinking.value = false;
         showGood.value = false;
-        await wait(160);
+        sfx.merge();
+        await wait(scaled(160));
         showGood.value = true;
-        live.value = "Good";
-        await wait(620);
+        live.value = praise.value;
+        await wait(scaled(620));
         shrinking.value = true;
-        await wait(380);
+        await wait(scaled(380));
         showGood.value = false;
         merge.value = null;
         shrinking.value = false;
@@ -462,11 +535,15 @@ async function play(steps: SettleStep[]) {
       const fromStack = new Set(
         step.falls.filter(move => "stack" in move.from).map(move => move.tileId)
       );
+      flipping.value = fromStack;
       game.view = { ...game.view, board: step.board, stacks: step.stacks };
       await glide(before, fromStack);
-      await wait(80);
+      await wait(scaled(80));
+      flipping.value = new Set();
     } else if (step.kind === "win") {
+      stars.value = starsFor(usedHint.value, usedMagic.value);
       live.value = "Level clear";
+      sfx.clear();
       game.winOpen = true;
     }
   }
@@ -497,12 +574,21 @@ function onPointerMove(event: PointerEvent) {
   if (Math.hypot(dx, dy) > 6) current.moved = true;
   current.x = current.col * stride.value + dx;
   current.y = current.row * stride.value + dy;
+  if (!boardEl.value) return;
+  const rect = boardEl.value.getBoundingClientRect();
+  const col = Math.floor((event.clientX - rect.left) / stride.value);
+  const row = Math.floor((event.clientY - rect.top) / stride.value);
+  hover.value =
+    row >= 0 && col >= 0 && row < BOARD_ROWS && col < BOARD_COLS
+      ? { row, col }
+      : null;
 }
 
 async function onPointerUp(event: PointerEvent) {
   const current = drag.value;
   if (!current || event.pointerId !== current.pointer) return;
   drag.value = null;
+  hover.value = null;
   if (!current.moved || !boardEl.value) return;
   const rect = boardEl.value.getBoundingClientRect();
   const col = Math.floor((event.clientX - rect.left) / stride.value);
@@ -545,6 +631,7 @@ onMounted(() => {
   }
   if (!import.meta.env.DEV) return;
   window.__puzzle = {
+    ...window.__puzzle,
     prepare: () => game.prepareMerge(),
     armWin: () => game.armWin(),
     swap: (rowA, colA, rowB, colB) =>

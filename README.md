@@ -1,13 +1,13 @@
 # Puzzle Drop
 
-A private picture-tile puzzle. Several photos are cut into tiles and mixed
-across a 4×4 board. Drag any tile onto any other tile to swap them. When one
-photo sits together in the right order, it merges, shows a short “Good”,
-shrinks away, and that column’s face-down stack refills the gaps.
+A private picture-tile puzzle. The home screen lists themed levels. On the
+board, drag any tile onto any other to swap them. When a photo sits in the
+right order it merges, shows Good, Great, or Perfect, shrinks away, and that
+column’s stack refills the gaps. New tiles flip as they land.
 
 There is no timer and no move limit. Hint highlights one picture. Magic
-finishes one picture for you. Your level and power-up counts stay on this
-device.
+finishes one picture for you. Sound can be muted. Your level and power-up
+counts stay on this device.
 
 ## Run
 
@@ -27,9 +27,10 @@ npm run build
 
 ## Photos
 
-The built-in pictures are real photographs. Credits, source pages, and
-licenses are in [CREDITS.md](CREDITS.md). **Use my photo** in Settings plays
-a picture from the phone and never uploads it.
+Forty-nine real photographs of Cambodia and Khmer life are included, in
+WebP. Credits, source pages, and licenses are in [CREDITS.md](CREDITS.md).
+**Use my photo** on the home screen plays a picture from the phone and never
+uploads it.
 
 ## Levels
 

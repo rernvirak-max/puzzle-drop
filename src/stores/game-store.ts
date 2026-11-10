@@ -15,9 +15,15 @@ export const useGameStore = defineStore("game", () => {
   const creditsOpen = ref(false);
   const winOpen = ref(false);
   const hinting = ref<CellPos[]>([]);
+  const screen = ref<"home" | "play">("home");
+  const playingLevel = ref(progress.value.level);
   const view = ref<GameState>(deal(progress.value.level));
 
-  const levelLabel = computed(() => progress.value.level);
+  const levelLabel = computed(() => playingLevel.value);
+  const levelName = computed(
+    () => levelDef(playingLevel.value).name ?? `Level ${playingLevel.value}`
+  );
+  const levelPack = computed(() => levelDef(playingLevel.value).pack ?? "");
 
   function deal(level: number): GameState {
     const template = levelDef(level);
@@ -32,7 +38,19 @@ export const useGameStore = defineStore("game", () => {
   function restart() {
     winOpen.value = false;
     hinting.value = [];
-    view.value = deal(progress.value.level);
+    view.value = deal(playingLevel.value);
+  }
+
+  function startLevel(level = progress.value.level) {
+    const unlocked = Math.max(1, progress.value.level);
+    playingLevel.value = Math.min(Math.max(1, level), unlocked);
+    restart();
+    screen.value = "play";
+  }
+
+  function goHome() {
+    winOpen.value = false;
+    screen.value = "home";
   }
 
   function photoSrc(photoId: string): string {
@@ -47,7 +65,7 @@ export const useGameStore = defineStore("game", () => {
     customUrl.value = URL.createObjectURL(file);
     customName.value = file.name.replace(/\.[^.]+$/, "") || "My photo";
     settingsOpen.value = false;
-    restart();
+    if (screen.value === "play") restart();
   }
 
   function clearCustom() {
@@ -70,13 +88,15 @@ export const useGameStore = defineStore("game", () => {
   }
 
   function nextLevel() {
-    save({
-      level: progress.value.level + 1,
-      hint: progress.value.hint + 1,
-      magic: progress.value.magic + 1
-    });
-    winOpen.value = false;
-    restart();
+    const cleared = playingLevel.value;
+    const hint = progress.value.hint + 1;
+    const magic = progress.value.magic + 1;
+    if (cleared >= progress.value.level) {
+      save({ level: progress.value.level + 1, hint, magic });
+    } else {
+      save({ ...progress.value, hint, magic });
+    }
+    goHome();
   }
 
   function prepareMerge(): { from: CellPos; to: CellPos } | null {
@@ -106,7 +126,11 @@ export const useGameStore = defineStore("game", () => {
 
   return {
     progress,
+    screen,
+    playingLevel,
     levelLabel,
+    levelName,
+    levelPack,
     customName,
     settingsOpen,
     creditsOpen,
@@ -115,6 +139,8 @@ export const useGameStore = defineStore("game", () => {
     view,
     catalog: CATALOG,
     photoSrc,
+    startLevel,
+    goHome,
     restart,
     useCustomFile,
     clearCustom,
