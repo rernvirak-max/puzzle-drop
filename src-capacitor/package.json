@@ -1,0 +1,11 @@
+{
+  "name": "puzzle-drop-capacitor",
+  "version": "0.1.0",
+  "description": "Capacitor shell for Puzzle Drop. Native projects are not added yet.",
+  "private": true,
+  "dependencies": {
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0"
+  }
+}
