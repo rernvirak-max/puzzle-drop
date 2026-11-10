@@ -14,19 +14,25 @@
  */
 interface ImportMetaEnv {}
 
-interface PuzzleDropDebug {
-  phase: () => string;
-  snapshot: () => unknown;
-  start: () => void;
-  startOrdered: () => void;
-  pause: () => void;
-  moveLeft: () => void;
-  moveRight: () => void;
-  rotate: () => void;
-  hardDrop: () => void;
-  tick: () => void;
+interface PuzzleDebug {
+  prepare: () => {
+    from: { row: number; col: number };
+    to: { row: number; col: number };
+  } | null;
+  armWin: () => {
+    from: { row: number; col: number };
+    to: { row: number; col: number };
+  };
+  swap: (
+    rowA: number,
+    colA: number,
+    rowB: number,
+    colB: number
+  ) => Promise<void>;
+  busy: () => boolean;
+  good: () => boolean;
 }
 
 interface Window {
-  __puzzleDrop?: PuzzleDropDebug;
+  __puzzle?: PuzzleDebug;
 }

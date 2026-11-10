@@ -1,192 +1,246 @@
 import { describe, expect, it } from "vitest";
 import {
-  canActiveFall,
-  columnLandingRow,
-  createGame,
-  type PuzzleGame
+  createLevel,
+  findCompletions,
+  hintTarget,
+  isLevelClear,
+  magicComplete,
+  oneSwapFromMerge,
+  settle,
+  swapTiles
 } from "./engine";
-import { WIN_BONUS, fallIntervalMs, pointsForLock } from "./scoring";
-import type { CreateGameOptions } from "./types";
+import type { Board, GameState, Tile } from "./types";
+import { BOARD_COLS, BOARD_ROWS } from "./types";
 
-function bottomUp(rows: number, cols: number): string[] {
-  const ids: string[] = [];
-  for (let row = rows - 1; row >= 0; row -= 1) {
-    for (let col = 0; col < cols; col += 1) ids.push(`${row}-${col}`);
-  }
-  return ids;
-}
-
-function sequence(values: number[]): () => number {
-  let index = 0;
-  return () => {
-    const value = values[Math.min(index, values.length - 1)] ?? 0;
-    index += 1;
-    return value;
+function tile(
+  pictureId: string,
+  localRow: number,
+  localCol: number,
+  rows = 2,
+  cols = 2,
+  photoId = pictureId
+): Tile {
+  return {
+    id: `${pictureId}:${localRow}-${localCol}`,
+    pictureId,
+    photoId,
+    localRow,
+    localCol,
+    pictureRows: rows,
+    pictureCols: cols
   };
 }
 
-function game2(partial: Partial<CreateGameOptions> = {}): PuzzleGame {
-  return createGame({
-    rows: 2,
-    cols: 2,
-    queue: bottomUp(2, 2),
-    rotationRoll: () => 0,
-    columnRoll: () => 0,
-    ...partial
-  });
+function blank(): Board {
+  return Array.from({ length: BOARD_ROWS }, () =>
+    Array.from({ length: BOARD_COLS }, () => null)
+  );
 }
 
-describe("createGame", () => {
-  it("deals every cell once", () => {
-    const game = createGame({ rows: 3, cols: 3, rng: () => 0.999 });
-    const snap = game.snapshot();
-    const ids = [...(snap.active ? [snap.active.id] : []), ...snap.queue];
-    expect(ids).toHaveLength(9);
-    expect(new Set(ids).size).toBe(9);
-    expect(snap.lives).toBe(3);
-    expect(snap.phase).toBe("playing");
-    expect(snap.active?.row).toBe(-1);
+function state(board: Board, stacks?: Tile[][]): GameState {
+  return {
+    level: 1,
+    board,
+    stacks: stacks ?? Array.from({ length: BOARD_COLS }, () => [])
+  };
+}
+
+describe("swapTiles", () => {
+  it("swaps any two tiles, including ones far apart", () => {
+    const board = blank();
+    const red = tile("red", 0, 0);
+    const blue = tile("blue", 0, 0);
+    board[0]![0] = red;
+    board[3]![3] = blue;
+    const result = swapTiles(
+      state(board),
+      { row: 0, col: 0 },
+      { row: 3, col: 3 }
+    );
+    expect(result.changed).toBe(true);
+    expect(result.boardAfterSwap[0]![0]?.id).toBe(blue.id);
+    expect(result.boardAfterSwap[3]![3]?.id).toBe(red.id);
   });
 
-  it("rejects a queue that skips a piece", () => {
-    expect(() =>
-      createGame({ rows: 2, cols: 2, queue: ["1-0", "1-0", "0-0", "0-1"] })
-    ).toThrow(/once/);
+  it("refuses a drop on an empty cell or the same cell", () => {
+    const board = blank();
+    board[0]![0] = tile("red", 0, 0);
+    const current = state(board);
+    expect(
+      swapTiles(current, { row: 0, col: 0 }, { row: 0, col: 0 }).changed
+    ).toBe(false);
+    expect(
+      swapTiles(current, { row: 0, col: 0 }, { row: 1, col: 1 }).changed
+    ).toBe(false);
+  });
+});
+
+describe("findCompletions", () => {
+  it("detects a 2x2 in the correct order anywhere on the board", () => {
+    const board = blank();
+    board[1]![2] = tile("cat", 0, 0);
+    board[1]![3] = tile("cat", 0, 1);
+    board[2]![2] = tile("cat", 1, 0);
+    board[2]![3] = tile("cat", 1, 1);
+    const found = findCompletions(board);
+    expect(found).toEqual([
+      {
+        pictureId: "cat",
+        photoId: "cat",
+        originRow: 1,
+        originCol: 2,
+        rows: 2,
+        cols: 2
+      }
+    ]);
   });
 
-  it("locks a piece that lands upright in its own cell", () => {
-    const game = game2();
-    const events = game.hardDrop();
-    const snap = game.snapshot();
-    expect(events[0]).toMatchObject({
-      type: "lock",
-      pieceId: "1-0",
-      row: 1,
-      col: 0,
-      combo: 1
+  it("rejects a 2x2 whose tiles are in the wrong order", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 1);
+    board[0]![1] = tile("cat", 0, 0);
+    board[1]![0] = tile("cat", 1, 0);
+    board[1]![1] = tile("cat", 1, 1);
+    expect(findCompletions(board)).toEqual([]);
+  });
+
+  it("rejects a correct block that is missing a tile", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    board[1]![0] = tile("cat", 1, 0);
+    expect(findCompletions(board)).toEqual([]);
+  });
+
+  it("detects a wider picture only when every cell matches", () => {
+    const board = blank();
+    for (let col = 0; col < 3; col += 1) {
+      board[2]![col] = tile("lake", 0, col, 2, 3);
+      board[3]![col] = tile("lake", 1, col, 2, 3);
+    }
+    expect(findCompletions(board)[0]).toMatchObject({
+      pictureId: "lake",
+      originRow: 2,
+      originCol: 0,
+      rows: 2,
+      cols: 3
     });
-    expect(snap.locked[1]?.[0]).toBe("1-0");
-    expect(snap.score).toBe(pointsForLock(2, 1));
-    expect(snap.fallIntervalMs).toBe(fallIntervalMs(1, 4));
-    expect(snap.fallIntervalMs).toBeLessThan(fallIntervalMs(0, 4));
+    board[3]![2] = tile("other", 0, 0);
+    expect(findCompletions(board)).toEqual([]);
+  });
+});
+
+describe("settle and refill", () => {
+  it("drops reserve tiles into the holes and lets tiles above a gap fall down", () => {
+    const board = blank();
+    board[2]![0] = tile("cat", 0, 0);
+    board[2]![1] = tile("cat", 0, 1);
+    board[3]![0] = tile("cat", 1, 0);
+    board[3]![1] = tile("cat", 1, 1);
+    const above = tile("keep", 0, 0);
+    const lower = tile("keep", 0, 1);
+    board[0]![0] = above;
+    board[1]![0] = lower;
+    const first = tile("stack", 0, 0);
+    const second = tile("stack", 0, 1);
+    const stacks = [[first, second], [], [], []];
+    const result = settle(state(board, stacks));
+    const column = result.state.board.map(row => row[0]?.id ?? null);
+    expect(column).toEqual([second.id, first.id, above.id, lower.id]);
+    expect(result.state.stacks[0]).toEqual([]);
+    expect(result.steps[0]).toMatchObject({ kind: "merge" });
+    expect(result.steps[1]).toMatchObject({ kind: "refill" });
+    expect(result.steps.some(step => step.kind === "win")).toBe(false);
   });
 
-  it("reaches the same lock by falling one row at a time", () => {
-    const game = game2();
-    expect(canActiveFall(game.snapshot())).toBe(true);
-    expect(game.tick()).toEqual([]);
-    expect(game.snapshot().active?.row).toBe(0);
-    expect(game.tick()).toEqual([]);
-    expect(game.snapshot().active?.row).toBe(1);
-    expect(canActiveFall(game.snapshot())).toBe(false);
-    const events = game.tick();
-    expect(events[0]?.type).toBe("lock");
-    expect(game.snapshot().locked[1]?.[0]).toBe("1-0");
+  it("wins when the last picture clears and the stacks are empty", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    board[1]![0] = tile("cat", 1, 0);
+    board[1]![1] = tile("cat", 1, 1);
+    const result = settle(state(board));
+    expect(isLevelClear(result.state)).toBe(true);
+    expect(result.steps.at(-1)).toEqual({ kind: "win" });
   });
 
-  it("spends one life for the wrong column and puts the piece at the back", () => {
-    const game = game2({ columnRoll: () => 1 });
-    const events = game.hardDrop();
-    const snap = game.snapshot();
-    expect(events[0]).toMatchObject({ type: "miss", pieceId: "1-0", lives: 2 });
-    expect(snap.locked.flat().every(cell => cell === null)).toBe(true);
-    expect(snap.combo).toBe(0);
-    expect(snap.score).toBe(0);
-    expect(snap.queue.at(-1)).toBe("1-0");
-    expect(snap.active?.id).toBe("1-1");
-    expect(snap.queue.filter(id => id === "1-0")).toHaveLength(1);
+  it("does not win while a reserve stack still holds a tile", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    board[1]![0] = tile("cat", 1, 0);
+    board[1]![1] = tile("cat", 1, 1);
+    const stacks = [[tile("later", 0, 0)], [], [], []];
+    const result = settle(state(board, stacks));
+    expect(isLevelClear(result.state)).toBe(false);
+    expect(result.steps.some(step => step.kind === "win")).toBe(false);
+    expect(result.state.board.some(row => row.some(Boolean))).toBe(true);
+  });
+});
+
+describe("levels, hint, and magic", () => {
+  const def = {
+    level: 1,
+    pictures: [
+      { photoId: "a", rows: 2, cols: 2 },
+      { photoId: "b", rows: 2, cols: 2 },
+      { photoId: "c", rows: 2, cols: 2 },
+      { photoId: "d", rows: 2, cols: 2 },
+      { photoId: "e", rows: 2, cols: 2 }
+    ]
+  };
+
+  it("deals a full board and parks the rest in the stacks", () => {
+    let seed = 3;
+    const rng = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    const dealt = createLevel(def, rng);
+    const onBoard = dealt.board.flat().filter(Boolean);
+    const stacked = dealt.stacks.flat();
+    expect(onBoard).toHaveLength(16);
+    expect(stacked).toHaveLength(4);
+    expect(findCompletions(dealt.board)).toEqual([]);
   });
 
-  it("spends one life for the right cell turned the wrong way", () => {
-    const game = game2({ rotationRoll: () => 1 });
-    const events = game.hardDrop();
-    expect(events[0]).toMatchObject({
-      type: "miss",
-      pieceId: "1-0",
-      rotation: 1,
-      row: 1,
-      col: 0
-    });
-    expect(game.snapshot().locked[1]?.[0]).toBeNull();
+  it("highlights the tiles of one unfinished picture", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[3]![2] = tile("cat", 1, 1);
+    board[1]![1] = tile("dog", 0, 0);
+    const hint = hintTarget(state(board));
+    expect(hint?.pictureId).toBe("cat");
+    expect(hint?.cells).toEqual([
+      { row: 0, col: 0 },
+      { row: 3, col: 2 }
+    ]);
   });
 
-  it("builds a combo and pays a completion bonus when the picture is done", () => {
-    const game = game2({
-      columnRoll: sequence([0, 1, 0, 1])
-    });
-    game.hardDrop();
-    game.hardDrop();
-    game.hardDrop();
-    const events = game.hardDrop();
-    const snap = game.snapshot();
-    const earned =
-      pointsForLock(2, 1) +
-      pointsForLock(2, 2) +
-      pointsForLock(2, 3) +
-      pointsForLock(2, 4) +
-      WIN_BONUS;
-    expect(snap.phase).toBe("won");
-    expect(snap.score).toBe(earned);
-    expect(snap.bestCombo).toBe(4);
-    expect(snap.active).toBeNull();
-    expect(events.at(-1)).toEqual({ type: "win", score: earned });
-    expect(events.some(event => event.type === "spawn")).toBe(false);
+  it("magic assembles a scrambled picture and clears it", () => {
+    const board = blank();
+    board[0]![1] = tile("cat", 1, 0);
+    board[2]![3] = tile("cat", 0, 1);
+    board[3]![0] = tile("cat", 0, 0);
+    board[1]![2] = tile("cat", 1, 1);
+    const result = magicComplete(state(board));
+    expect(result.changed).toBe(true);
+    expect(result.steps.some(step => step.kind === "merge")).toBe(true);
+    expect(isLevelClear(result.state)).toBe(true);
   });
 
-  it("resets the combo when a drop misses", () => {
-    const game = game2();
-    game.hardDrop();
-    const missed = game.hardDrop();
-    expect(missed[0]?.type).toBe("miss");
-    expect(game.snapshot().combo).toBe(0);
-    const locked = game.hardDrop();
-    expect(locked[0]).toMatchObject({ type: "lock", combo: 1 });
-  });
-
-  it("ends the game on the last life and stops spawning", () => {
-    const game = game2({ lives: 1, columnRoll: () => 1 });
-    const events = game.hardDrop();
-    expect(events.map(event => event.type)).toEqual(["miss", "lose"]);
-    expect(game.phase).toBe("lost");
-    expect(game.snapshot().active).toBeNull();
-    expect(game.tick()).toEqual([]);
-    expect(game.hardDrop()).toEqual([]);
-    expect(game.rotate()).toBe(false);
-  });
-
-  it("refuses to leave the board or slide into a locked cell", () => {
-    const game = game2({ columnRoll: sequence([0, 1]) });
-    expect(game.moveLeft()).toBe(false);
-    expect(game.snapshot().active?.col).toBe(0);
-    game.hardDrop();
-    expect(game.tick()).toEqual([]);
-    expect(game.tick()).toEqual([]);
-    expect(game.snapshot().active).toMatchObject({ id: "1-1", row: 1, col: 1 });
-    expect(game.moveLeft()).toBe(false);
-    expect(game.moveRight()).toBe(false);
-    expect(game.snapshot().active?.col).toBe(1);
-    expect(columnLandingRow(game.snapshot().locked, 0)).toBe(0);
-  });
-
-  it("ignores input while paused", () => {
-    const game = game2();
-    game.pause();
-    expect(game.phase).toBe("paused");
-    expect(game.tick()).toEqual([]);
-    expect(game.snapshot().active?.row).toBe(-1);
-    expect(game.moveRight()).toBe(false);
-    expect(game.rotate()).toBe(false);
-    expect(game.hardDrop()).toEqual([]);
-    game.togglePause();
-    expect(game.phase).toBe("playing");
-    expect(game.moveRight()).toBe(true);
-    expect(game.snapshot().active?.col).toBe(1);
-  });
-
-  it("rotates in quarter turns and wraps", () => {
-    const game = game2({ rotationRoll: () => 3 });
-    expect(game.snapshot().active?.rotation).toBe(3);
-    game.rotate();
-    expect(game.snapshot().active?.rotation).toBe(0);
+  it("a single correcting swap merges the picture", () => {
+    let seed = 9;
+    const rng = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    const dealt = createLevel(def, rng);
+    const prepared = oneSwapFromMerge(dealt);
+    expect(prepared).not.toBeNull();
+    if (!prepared) return;
+    expect(findCompletions(prepared.state.board)).toEqual([]);
+    const result = swapTiles(prepared.state, prepared.from, prepared.to);
+    expect(result.steps.some(step => step.kind === "merge")).toBe(true);
   });
 });

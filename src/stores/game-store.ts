@@ -1,219 +1,154 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { createGame, type PuzzleGame } from "@/game/engine";
-import type { GameEvent, GameSnapshot } from "@/game/types";
-import { createHighScoreBook } from "@/game/high-score";
-import {
-  CATALOG,
-  GRID_SIZES,
-  publicPhoto,
-  type CatalogPicture,
-  type GridSize
-} from "@/game/pictures";
-
-export interface PlayPicture {
-  id: string;
-  title: string;
-  place: string;
-  src: string;
-  custom: boolean;
-}
-
-export type Screen = "menu" | "playing" | "paused" | "won" | "lost";
-
-function orderedQueue(size: number): string[] {
-  const ids: string[] = [];
-  for (let row = size - 1; row >= 0; row -= 1) {
-    for (let col = 0; col < size; col += 1) ids.push(`${row}-${col}`);
-  }
-  return ids;
-}
-
-function fromCatalog(picture: CatalogPicture): PlayPicture {
-  return {
-    id: picture.id,
-    title: picture.title,
-    place: picture.place,
-    src: publicPhoto(picture.file),
-    custom: false
-  };
-}
+import { createLevel, emptyBoard, oneSwapFromMerge } from "@/game/engine";
+import { levelDef } from "@/game/levels";
+import { CATALOG, catalogPicture, publicPhoto } from "@/game/pictures";
+import { createProgressBook, type Progress } from "@/game/progress";
+import type { CellPos, GameState, Tile } from "@/game/types";
 
 export const useGameStore = defineStore("game", () => {
-  const book = createHighScoreBook();
-  const screen = ref<Screen>("menu");
-  const gridSize = ref<GridSize>(3);
-  const selectedId = ref(CATALOG[0]?.id ?? "");
-  const custom = ref<PlayPicture | null>(null);
-  const activePicture = ref<PlayPicture | null>(null);
-  const snapshot = ref<GameSnapshot | null>(null);
-  const recentEvents = ref<GameEvent[]>([]);
-  const highScores = ref<Record<string, number>>(book.all());
-  const bestThisRun = ref(0);
-  const isNewBest = ref(false);
-  let engine: PuzzleGame | null = null;
-  let recorded = false;
+  const book = createProgressBook();
+  const progress = ref<Progress>(book.read());
+  const customUrl = ref<string | null>(null);
+  const customName = ref("");
+  const settingsOpen = ref(false);
+  const creditsOpen = ref(false);
+  const winOpen = ref(false);
+  const hinting = ref<CellPos[]>([]);
+  const view = ref<GameState>(deal(progress.value.level));
 
-  const pictures = computed(() => {
-    const list = CATALOG.map(fromCatalog);
-    if (custom.value) list.push(custom.value);
-    return list;
-  });
+  const levelLabel = computed(() => progress.value.level);
 
-  const selected = computed(() => {
-    return (
-      pictures.value.find(picture => picture.id === selectedId.value) ??
-      pictures.value[0] ??
-      null
+  function deal(level: number): GameState {
+    const template = levelDef(level);
+    const pictures = template.pictures.map((picture, index) =>
+      index === 0 && customUrl.value
+        ? { ...picture, photoId: "custom" }
+        : { ...picture }
     );
-  });
-
-  function selectPicture(id: string) {
-    selectedId.value = id;
+    return createLevel({ level, pictures });
   }
 
-  function setGrid(size: GridSize) {
-    gridSize.value = size;
+  function restart() {
+    winOpen.value = false;
+    hinting.value = [];
+    view.value = deal(progress.value.level);
+  }
+
+  function photoSrc(photoId: string): string {
+    if (photoId === "custom" && customUrl.value) return customUrl.value;
+    const picture = catalogPicture(photoId);
+    return picture ? publicPhoto(picture.file) : "";
   }
 
   function useCustomFile(file: File) {
-    if (custom.value?.src.startsWith("blob:")) {
-      URL.revokeObjectURL(custom.value.src);
-    }
-    const title = file.name.replace(/\.[^.]+$/, "") || "My photo";
-    const picture: PlayPicture = {
-      id: `custom:${file.name}:${file.size}:${file.lastModified}`,
-      title,
-      place: "On this phone",
-      src: URL.createObjectURL(file),
-      custom: true
+    if (customUrl.value?.startsWith("blob:"))
+      URL.revokeObjectURL(customUrl.value);
+    customUrl.value = URL.createObjectURL(file);
+    customName.value = file.name.replace(/\.[^.]+$/, "") || "My photo";
+    settingsOpen.value = false;
+    restart();
+  }
+
+  function clearCustom() {
+    if (customUrl.value?.startsWith("blob:"))
+      URL.revokeObjectURL(customUrl.value);
+    customUrl.value = null;
+    customName.value = "";
+    restart();
+  }
+
+  function save(next: Progress) {
+    progress.value = next;
+    book.write(next);
+  }
+
+  function spend(kind: "hint" | "magic"): boolean {
+    if (progress.value[kind] <= 0) return false;
+    save({ ...progress.value, [kind]: progress.value[kind] - 1 });
+    return true;
+  }
+
+  function nextLevel() {
+    save({
+      level: progress.value.level + 1,
+      hint: progress.value.hint + 1,
+      magic: progress.value.magic + 1
+    });
+    winOpen.value = false;
+    restart();
+  }
+
+  function prepareMerge(): { from: CellPos; to: CellPos } | null {
+    const prepared = oneSwapFromMerge(view.value);
+    if (!prepared) return null;
+    view.value = prepared.state;
+    hinting.value = [];
+    winOpen.value = false;
+    return { from: prepared.from, to: prepared.to };
+  }
+
+  function armWin(): { from: CellPos; to: CellPos } {
+    const picture = tileSet("angkor-wat");
+    const board = emptyBoard();
+    board[0]![0] = picture[0]![1]!;
+    board[0]![1] = picture[0]![0]!;
+    board[1]![0] = picture[1]![0]!;
+    board[1]![1] = picture[1]![1]!;
+    view.value = {
+      level: progress.value.level,
+      board,
+      stacks: [[], [], [], []]
     };
-    custom.value = picture;
-    selectedId.value = picture.id;
-  }
-
-  function sync(events: GameEvent[] = []) {
-    snapshot.value = engine?.snapshot() ?? null;
-    if (snapshot.value) screen.value = snapshot.value.phase;
-    if (events.length > 0) recentEvents.value = events;
-    if (events.some(event => event.type === "win" || event.type === "lose")) {
-      recordScore();
-    }
-  }
-
-  function recordScore() {
-    if (recorded || !engine || !activePicture.value) return;
-    if (engine.phase !== "won" && engine.phase !== "lost") return;
-    recorded = true;
-    const id = activePicture.value.id;
-    const previous = book.read(id);
-    const best = book.record(id, engine.score);
-    bestThisRun.value = best;
-    isNewBest.value = engine.score > previous && engine.score > 0;
-    highScores.value = book.all();
-  }
-
-  function begin(picture: PlayPicture, ordered: boolean) {
-    activePicture.value = picture;
-    recorded = false;
-    isNewBest.value = false;
-    bestThisRun.value = book.read(picture.id);
-    const size = gridSize.value;
-    engine = ordered
-      ? createGame({
-          rows: size,
-          cols: size,
-          queue: orderedQueue(size),
-          rotationRoll: () => 1,
-          columnRoll: open => open[Math.floor(open.length / 2)] ?? 0
-        })
-      : createGame({ rows: size, cols: size });
-    recentEvents.value = [];
-    sync();
-  }
-
-  function start(picture: PlayPicture | null = selected.value) {
-    if (!picture) return;
-    begin(picture, false);
-  }
-
-  function startOrdered() {
-    if (!import.meta.env.DEV || !selected.value) return;
-    begin(selected.value, true);
-  }
-
-  function tick() {
-    if (!engine) return;
-    sync(engine.tick());
-  }
-
-  function moveLeft() {
-    engine?.moveLeft();
-    sync();
-  }
-
-  function moveRight() {
-    engine?.moveRight();
-    sync();
-  }
-
-  function rotate() {
-    engine?.rotate();
-    sync();
-  }
-
-  function hardDrop() {
-    if (!engine) return;
-    sync(engine.hardDrop());
-  }
-
-  function togglePause() {
-    engine?.togglePause();
-    sync();
-  }
-
-  function retry() {
-    if (activePicture.value) start(activePicture.value);
-  }
-
-  function menu() {
-    engine = null;
-    snapshot.value = null;
-    recentEvents.value = [];
-    screen.value = "menu";
-  }
-
-  function scoreFor(id: string): number {
-    return highScores.value[id] ?? 0;
+    winOpen.value = false;
+    return { from: { row: 0, col: 0 }, to: { row: 0, col: 1 } };
   }
 
   return {
-    screen,
-    gridSize,
-    gridSizes: GRID_SIZES,
-    selectedId,
-    selected,
-    pictures,
+    progress,
+    levelLabel,
+    customName,
+    settingsOpen,
+    creditsOpen,
+    winOpen,
+    hinting,
+    view,
     catalog: CATALOG,
-    activePicture,
-    snapshot,
-    recentEvents,
-    highScores,
-    bestThisRun,
-    isNewBest,
-    selectPicture,
-    setGrid,
+    photoSrc,
+    restart,
     useCustomFile,
-    start,
-    startOrdered,
-    tick,
-    moveLeft,
-    moveRight,
-    rotate,
-    hardDrop,
-    togglePause,
-    retry,
-    menu,
-    scoreFor
+    clearCustom,
+    save,
+    spend,
+    nextLevel,
+    prepareMerge,
+    armWin,
+    openSettings() {
+      settingsOpen.value = true;
+    },
+    closeSettings() {
+      settingsOpen.value = false;
+      creditsOpen.value = false;
+    }
   };
 });
+
+function tileSet(photoId: string): Tile[][] {
+  const rows: Tile[][] = [];
+  for (let localRow = 0; localRow < 2; localRow += 1) {
+    const row: Tile[] = [];
+    for (let localCol = 0; localCol < 2; localCol += 1) {
+      row.push({
+        id: `win-${photoId}:${localRow}-${localCol}`,
+        pictureId: `win-${photoId}`,
+        photoId,
+        localRow,
+        localCol,
+        pictureRows: 2,
+        pictureCols: 2
+      });
+    }
+    rows.push(row);
+  }
+  return rows;
+}
