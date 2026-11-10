@@ -20,6 +20,7 @@
         <li
           v-for="level in levels"
           :key="level.level"
+          :ref="element => rememberRow(element, level.level)"
           :class="{
             'is-now': level.level === game.progress.level,
             'is-done': level.level < game.progress.level,
@@ -100,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import ThemePicker from "@/components/ThemePicker.vue";
 import { LEVELS, levelDef } from "@/game/levels";
 import { muted, toggleMuted } from "@/game/sound";
@@ -112,6 +113,28 @@ const credits = ref(false);
 const fileEl = ref<HTMLInputElement | null>(null);
 const nextName = computed(
   () => levelDef(game.progress.level).name ?? "Temple Court"
+);
+const currentRow = ref<HTMLElement | null>(null);
+
+function rememberRow(element: Element | null, level: number) {
+  if (level === game.progress.level && element instanceof HTMLElement) {
+    currentRow.value = element;
+  }
+}
+
+function revealCurrent() {
+  currentRow.value?.scrollIntoView({ block: "nearest" });
+}
+
+onMounted(() => {
+  void nextTick(revealCurrent);
+});
+
+watch(
+  () => game.progress.level,
+  () => {
+    void nextTick(revealCurrent);
+  }
 );
 
 function pickPhoto() {

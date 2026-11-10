@@ -202,9 +202,14 @@ input {
   margin: 0;
   padding: 0 0 8px;
   overflow: auto;
+  scroll-behavior: smooth;
   display: grid;
   gap: 8px;
   align-content: start;
+}
+
+.pd-map li {
+  scroll-margin: 12px;
 }
 
 .pd-map button {

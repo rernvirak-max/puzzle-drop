@@ -1,3 +1,10 @@
+import {
+  completablePictureIds,
+  groupTiles,
+  holeOrder,
+  planIncoming,
+  selectDeal
+} from "./solvable";
 import { BOARD_COLS, BOARD_ROWS } from "./types";
 import type {
   Board,
@@ -29,9 +36,21 @@ export function createLevel(
 ): GameState {
   const tiles = tilesFor(def);
   let state = deal(def.level, tiles, rng);
+  if (
+    completablePictureIds(flatTiles(state.board), state.stacks.flat())
+      .length === 0
+  ) {
+    state = refill(state).state;
+  }
   for (let attempt = 0; attempt < 24; attempt += 1) {
-    if (findCompletions(state.board).length === 0) break;
-    state = deal(def.level, tiles, rng);
+    if (
+      findCompletions(state.board).length === 0 &&
+      completablePictureIds(flatTiles(state.board), state.stacks.flat())
+        .length > 0
+    ) {
+      return state;
+    }
+    state = scrambleBoard(state, rng);
   }
   return state;
 }
@@ -311,12 +330,27 @@ export function hintTarget(
   const complete = new Set(
     findCompletions(state.board).map(item => item.pictureId)
   );
-  let best: { pictureId: string; cells: CellPos[] } | null = null;
+  const reserve = state.stacks.flat();
+  const ready = new Set(
+    completablePictureIds(
+      state.board.flat().filter(tile => tile !== null),
+      reserve
+    )
+  );
+  let best: { pictureId: string; cells: CellPos[]; ready: boolean } | null =
+    null;
   for (const [pictureId, cells] of groups) {
     if (complete.has(pictureId)) continue;
-    if (!best || cells.length > best.cells.length) best = { pictureId, cells };
+    const isReady = ready.has(pictureId);
+    if (
+      !best ||
+      (isReady && !best.ready) ||
+      (isReady === best.ready && cells.length > best.cells.length)
+    ) {
+      best = { pictureId, cells, ready: isReady };
+    }
   }
-  return best;
+  return best ? { pictureId: best.pictureId, cells: best.cells } : null;
 }
 
 /** Pull one picture into the correct order, then resolve clears and refills. */
@@ -429,23 +463,71 @@ function tilesFor(def: LevelDef): Tile[] {
   return tiles;
 }
 
-function deal(level: number, source: Tile[], rng: () => number): GameState {
-  const tiles = shuffle(source, rng);
+function flatTiles(board: Board): Tile[] {
+  return board.flat().filter(tile => tile !== null);
+}
+
+function scrambleBoard(state: GameState, rng: () => number): GameState {
+  const tiles = shuffle(flatTiles(state.board), rng);
   const spots = shuffle(allSpots(), rng);
   const board = emptyBoard();
-  tiles.slice(0, BOARD_ROWS * BOARD_COLS).forEach((tile, index) => {
+  tiles.forEach((tile, index) => {
     const spot = spots[index];
-    if (!spot) return;
-    board[spot.row]![spot.col] = tile;
+    if (spot) board[spot.row]![spot.col] = tile;
   });
+  return { ...state, board };
+}
+
+function deal(level: number, source: Tile[], rng: () => number): GameState {
+  const selected = selectDeal(source, rng);
+  const spots = shuffle(allSpots(), rng);
+  const board = emptyBoard();
+  selected.board.forEach((tile, index) => {
+    const spot = spots[index];
+    if (spot) board[spot.row]![spot.col] = tile;
+  });
+  const onBoard = groupTiles(selected.board);
+  const all = groupTiles([...selected.board, ...selected.reserve]);
+  const missing = (id: string) =>
+    (all.get(id)?.length ?? 0) - (onBoard.get(id)?.length ?? 0);
+  const soon = [...onBoard.keys()]
+    .filter(id => missing(id) > 0)
+    .sort((left, right) => missing(left) - missing(right));
+  const front = new Set<string>();
+  const ordered: Tile[] = [];
+  for (const id of soon) {
+    for (const tile of selected.reserve) {
+      if (tile.pictureId !== id || front.has(tile.id)) continue;
+      ordered.push(tile);
+      front.add(tile.id);
+    }
+  }
+  for (const tile of selected.reserve) {
+    if (!front.has(tile.id)) ordered.push(tile);
+  }
   const stacks: Tile[][] = Array.from({ length: BOARD_COLS }, () => []);
-  tiles.slice(BOARD_ROWS * BOARD_COLS).forEach((tile, index) => {
+  ordered.forEach((tile, index) => {
     stacks[index % BOARD_COLS]!.push(tile);
   });
   return { level, board, stacks };
 }
 
 function refill(state: GameState): { state: GameState; falls: FallMove[] } {
+  const classic = refillColumns(state);
+  const tiles = flatTiles(classic.state.board);
+  if (
+    tiles.length === 0 ||
+    completablePictureIds(tiles, classic.state.stacks.flat()).length > 0
+  ) {
+    return classic;
+  }
+  return refillForSolution(state);
+}
+
+function refillColumns(state: GameState): {
+  state: GameState;
+  falls: FallMove[];
+} {
   const board = emptyBoard();
   const stacks = state.stacks.map(stack => [...stack]);
   const falls: FallMove[] = [];
@@ -476,7 +558,8 @@ function refill(state: GameState): { state: GameState; falls: FallMove[] } {
       row -= 1
     ) {
       if (board[row]![col]) continue;
-      const tile = incoming[incomingIndex]!;
+      const tile = incoming[incomingIndex];
+      if (!tile) break;
       incomingIndex += 1;
       board[row]![col] = tile;
       falls.push({
@@ -486,6 +569,47 @@ function refill(state: GameState): { state: GameState; falls: FallMove[] } {
       });
     }
   }
+  return { state: { ...state, board, stacks }, falls };
+}
+
+function refillForSolution(state: GameState): {
+  state: GameState;
+  falls: FallMove[];
+} {
+  const packed = refillColumns({
+    ...state,
+    stacks: state.stacks.map(() => [])
+  });
+  const board = packed.state.board;
+  const stacks = state.stacks.map(stack => [...stack]);
+  const falls = packed.falls.filter(fall => !("stack" in fall.from));
+  const holes = holeOrder(board);
+  const plan = planIncoming(flatTiles(board), stacks, holes);
+  const evictIds = new Set(plan.evict.map(tile => tile.id));
+  const targets = [...holes];
+  for (let row = 0; row < BOARD_ROWS; row += 1) {
+    for (let col = 0; col < BOARD_COLS; col += 1) {
+      const tile = board[row]?.[col];
+      if (!tile || !evictIds.has(tile.id)) continue;
+      board[row]![col] = null;
+      targets.push({ row, col });
+      stacks[col]?.push(tile);
+    }
+  }
+  const stackOf = new Map<string, number>();
+  stacks.forEach((stack, index) => {
+    stack.forEach(tile => stackOf.set(tile.id, index));
+  });
+  plan.incoming.forEach((tile, index) => {
+    const at = targets[index];
+    if (!at) return;
+    board[at.row]![at.col] = tile;
+    const from = stackOf.get(tile.id) ?? at.col;
+    const stack = stacks[from];
+    const found = stack?.findIndex(item => item.id === tile.id) ?? -1;
+    if (stack && found >= 0) stack.splice(found, 1);
+    falls.push({ tileId: tile.id, to: at, from: { stack: from } });
+  });
   return { state: { ...state, board, stacks }, falls };
 }
 
