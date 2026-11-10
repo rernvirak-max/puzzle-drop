@@ -108,6 +108,46 @@ export const useGameStore = defineStore("game", () => {
     return { from: prepared.from, to: prepared.to };
   }
 
+  function prepareJoin(): {
+    join: { from: CellPos; to: CellPos };
+    grow: { from: CellPos; to: CellPos };
+    finish: { from: CellPos; to: CellPos };
+  } {
+    const cat = tileSet("angkor-wat");
+    const bird = tileSet("bayon");
+    const dog = tileSet("ta-prohm");
+    const extra = tileSet("royal-palace");
+    const board = emptyBoard();
+    board[0]![0] = cat[0]![0]!;
+    board[0]![1] = bird[0]![0]!;
+    board[0]![2] = cat[0]![1]!;
+    board[0]![3] = dog[0]![0]!;
+    board[1]![0] = bird[0]![1]!;
+    board[1]![1] = cat[1]![0]!;
+    board[1]![2] = dog[0]![1]!;
+    board[1]![3] = cat[1]![1]!;
+    board[2]![0] = dog[1]![0]!;
+    board[2]![1] = bird[1]![0]!;
+    board[2]![2] = dog[1]![1]!;
+    board[2]![3] = bird[1]![1]!;
+    board[3]![0] = extra[0]![0]!;
+    board[3]![1] = extra[1]![1]!;
+    board[3]![2] = extra[0]![1]!;
+    board[3]![3] = extra[1]![0]!;
+    view.value = {
+      level: playingLevel.value,
+      board,
+      stacks: [[], [], [], []]
+    };
+    winOpen.value = false;
+    hinting.value = [];
+    return {
+      join: { from: { row: 0, col: 2 }, to: { row: 0, col: 1 } },
+      grow: { from: { row: 1, col: 1 }, to: { row: 1, col: 0 } },
+      finish: { from: { row: 1, col: 3 }, to: { row: 1, col: 1 } }
+    };
+  }
+
   function armWin(): { from: CellPos; to: CellPos } {
     const picture = tileSet("angkor-wat");
     const board = emptyBoard();
@@ -148,6 +188,7 @@ export const useGameStore = defineStore("game", () => {
     spend,
     nextLevel,
     prepareMerge,
+    prepareJoin,
     armWin,
     openSettings() {
       settingsOpen.value = true;

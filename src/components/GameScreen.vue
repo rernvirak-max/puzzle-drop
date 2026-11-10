@@ -77,7 +77,7 @@
             :key="layer"
             class="pd-back"
             :style="{
-              transform: `translateY(${(stackLayers(stack.length) - layer) * 8}px)`
+              transform: `translateY(${(stackLayers(stack.length) - layer) * 4}px)`
             }"
           />
           <b v-if="stack.length">{{ stack.length }}</b>
@@ -106,8 +106,13 @@
           class="pd-tile"
           :class="{
             'is-hint': isHinted(placed),
-            'is-lifted': drag?.id === placed.tile.id,
-            'is-target': isTarget(placed)
+            'is-lifted': isLifted(placed),
+            'is-joined': isJoined(placed),
+            'is-join-right': edge(placed.row, placed.col, 0, 1),
+            'is-join-left': edge(placed.row, placed.col, 0, -1),
+            'is-join-down': edge(placed.row, placed.col, 1, 0),
+            'is-join-up': edge(placed.row, placed.col, -1, 0),
+            'is-snap': snapping.has(placed.tile.id)
           }"
           :data-tile="placed.tile.id"
           :data-row="placed.row"
@@ -152,6 +157,8 @@
     >
       <section class="pd-sheet" role="dialog" aria-labelledby="settings-title">
         <h2 id="settings-title">Settings</h2>
+        <p class="pd-note">Pick a colour, then play.</p>
+        <ThemePicker />
         <p class="pd-note">
           Your photo stays on this phone and replaces the first picture in the
           level.
@@ -241,12 +248,25 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { hintTarget, magicComplete, swapTiles } from "@/game/engine";
+import ThemePicker from "@/components/ThemePicker.vue";
+import {
+  findGroups,
+  groupAt,
+  hintTarget,
+  magicComplete,
+  moveGroup
+} from "@/game/engine";
 import { praiseWord, starsFor } from "@/game/feedback";
 import { scaled } from "@/game/motion";
 import { muted, sfx, toggleMuted } from "@/game/sound";
 import { useGameStore } from "@/stores/game-store";
-import type { CellPos, Completion, SettleStep, Tile } from "@/game/types";
+import type {
+  Board,
+  CellPos,
+  Completion,
+  SettleStep,
+  Tile
+} from "@/game/types";
 import { BOARD_COLS, BOARD_ROWS } from "@/game/types";
 
 interface Placed {
@@ -259,8 +279,9 @@ const game = useGameStore();
 const stageEl = ref<HTMLElement | null>(null);
 const boardEl = ref<HTMLElement | null>(null);
 const fileEl = ref<HTMLInputElement | null>(null);
-const cell = ref(78);
-const gap = 6;
+const cellW = ref(88);
+const cellH = ref(132);
+const gap = 4;
 const busy = ref(false);
 const merge = ref<Completion | null>(null);
 const showGood = ref(false);
@@ -275,31 +296,33 @@ const confetti = Array.from({ length: 28 }, (_, id) => ({
   id,
   left: `${(id * 37) % 100}%`,
   delay: `${(id % 7) * 0.08}s`,
-  color: ["#e4b15c", "#f6efe4", "#6e2a32", "#2f6b4f"][id % 4]
+  color: ["#1f9d62", "#ff7a59", "#3d8bfd", "#ffe08a"][id % 4]
 }));
 const live = ref("");
+const snapping = ref(new Set<string>());
 const drag = ref<{
-  id: string;
-  row: number;
-  col: number;
-  x: number;
-  y: number;
+  anchorRow: number;
+  anchorCol: number;
+  members: { id: string; row: number; col: number }[];
+  dx: number;
+  dy: number;
   startX: number;
   startY: number;
   pointer: number;
   moved: boolean;
 } | null>(null);
 
-const stride = computed(() => cell.value + gap);
+const strideX = computed(() => cellW.value + gap);
+const strideY = computed(() => cellH.value + gap);
 const boardWidth = computed(
-  () => BOARD_COLS * cell.value + (BOARD_COLS - 1) * gap
+  () => BOARD_COLS * cellW.value + (BOARD_COLS - 1) * gap
 );
 const boardHeight = computed(
-  () => BOARD_ROWS * cell.value + (BOARD_ROWS - 1) * gap
+  () => BOARD_ROWS * cellH.value + (BOARD_ROWS - 1) * gap
 );
 const gridStyle = computed(() => ({
   width: `${boardWidth.value}px`,
-  gridTemplateColumns: `repeat(${BOARD_COLS}, ${cell.value}px)`,
+  gridTemplateColumns: `repeat(${BOARD_COLS}, ${cellW.value}px)`,
   columnGap: `${gap}px`
 }));
 const slots = computed(() => {
@@ -327,10 +350,10 @@ const mergeStyle = computed(() => {
   if (!merge.value) return {};
   const block = merge.value;
   return {
-    left: `${block.originCol * stride.value}px`,
-    top: `${block.originRow * stride.value}px`,
-    width: `${block.cols * cell.value + (block.cols - 1) * gap}px`,
-    height: `${block.rows * cell.value + (block.rows - 1) * gap}px`
+    left: `${block.originCol * strideX.value}px`,
+    top: `${block.originRow * strideY.value}px`,
+    width: `${block.cols * cellW.value}px`,
+    height: `${block.rows * cellH.value}px`
   };
 });
 
@@ -340,23 +363,67 @@ function stackLayers(count: number): number {
 
 function slotStyle(slot: CellPos) {
   return {
-    width: `${cell.value}px`,
-    height: `${cell.value}px`,
-    transform: `translate(${slot.col * stride.value}px, ${slot.row * stride.value}px)`
+    width: `${cellW.value}px`,
+    height: `${cellH.value}px`,
+    transform: `translate(${slot.col * strideX.value}px, ${slot.row * strideY.value}px)`
   };
 }
 
+function edge(row: number, col: number, dRow: number, dCol: number): boolean {
+  const tile = game.view.board[row]?.[col];
+  const other = game.view.board[row + dRow]?.[col + dCol];
+  if (!tile || !other || tile.pictureId !== other.pictureId) return false;
+  return (
+    other.localRow - tile.localRow === dRow &&
+    other.localCol - tile.localCol === dCol
+  );
+}
+
+function isJoined(placed: Placed): boolean {
+  return (
+    edge(placed.row, placed.col, 0, 1) ||
+    edge(placed.row, placed.col, 0, -1) ||
+    edge(placed.row, placed.col, 1, 0) ||
+    edge(placed.row, placed.col, -1, 0)
+  );
+}
+
+function shiftOf(row: number, col: number): { x: number; y: number } {
+  let left = 0;
+  let cursor = col;
+  while (cursor > 0 && edge(row, cursor, 0, -1)) {
+    left += 1;
+    cursor -= 1;
+  }
+  let up = 0;
+  cursor = row;
+  while (cursor > 0 && edge(cursor, col, -1, 0)) {
+    up += 1;
+    cursor -= 1;
+  }
+  const seam = gap + 2;
+  return { x: -left * seam, y: -up * seam };
+}
+
+function isLifted(placed: Placed): boolean {
+  return (
+    drag.value?.members.some(member => member.id === placed.tile.id) ?? false
+  );
+}
+
 function tileStyle(placed: Placed) {
-  const lifted = drag.value?.id === placed.tile.id ? drag.value : null;
-  const x = lifted ? lifted.x : placed.col * stride.value;
-  const y = lifted ? lifted.y : placed.row * stride.value;
+  const shift = shiftOf(placed.row, placed.col);
+  const current = drag.value;
+  const lifted = current?.members.some(member => member.id === placed.tile.id)
+    ? current
+    : null;
+  const x = placed.col * strideX.value + shift.x + (lifted ? lifted.dx : 0);
+  const y = placed.row * strideY.value + shift.y + (lifted ? lifted.dy : 0);
   return {
-    width: `${cell.value}px`,
-    height: `${cell.value}px`,
-    transform: lifted
-      ? `translate(${x}px, ${y - 8}px) scale(1.06)`
-      : `translate(${x}px, ${y}px)`,
-    zIndex: lifted ? 6 : 1
+    width: `${cellW.value}px`,
+    height: `${cellH.value}px`,
+    transform: `translate(${x}px, ${y}px)`,
+    zIndex: lifted ? 6 : isJoined(placed) ? 2 : 1
   };
 }
 
@@ -373,8 +440,12 @@ function isTarget(slot: CellPos): boolean {
   const over = hover.value;
   const current = drag.value;
   if (!over || !current) return false;
-  if (over.row === current.row && over.col === current.col) return false;
-  return over.row === slot.row && over.col === slot.col;
+  const dRow = over.row - current.anchorRow;
+  const dCol = over.col - current.anchorCol;
+  if (dRow === 0 && dCol === 0) return false;
+  return current.members.some(
+    member => member.row + dRow === slot.row && member.col + dCol === slot.col
+  );
 }
 
 function isHinted(placed: Placed): boolean {
@@ -386,12 +457,24 @@ function isHinted(placed: Placed): boolean {
 function measure() {
   const stage = stageEl.value;
   if (!stage) return;
-  const top = stage.getBoundingClientRect().top;
-  const availH = Math.max(240, window.innerHeight - top - 96);
-  const availW = Math.max(240, stage.clientWidth - 8);
-  const byWidth = Math.floor((availW - gap * (BOARD_COLS - 1)) / BOARD_COLS);
-  const byHeight = Math.floor((availH - gap * (BOARD_ROWS - 1)) / BOARD_ROWS);
-  cell.value = Math.max(72, Math.min(byWidth, byHeight, 168));
+  const style = getComputedStyle(stage);
+  const padX =
+    Number.parseFloat(style.paddingLeft) +
+    Number.parseFloat(style.paddingRight);
+  const padY =
+    Number.parseFloat(style.paddingTop) +
+    Number.parseFloat(style.paddingBottom);
+  const stacks = stage.querySelector(".pd-stacks");
+  const stacksH = stacks instanceof HTMLElement ? stacks.offsetHeight + 4 : 38;
+  const availW = Math.max(220, stage.clientWidth - padX);
+  const availH = Math.max(280, stage.clientHeight - padY - stacksH);
+  const width = Math.floor((availW - gap * (BOARD_COLS - 1)) / BOARD_COLS);
+  const heightRoom = Math.floor((availH - gap * (BOARD_ROWS - 1)) / BOARD_ROWS);
+  cellW.value = Math.max(64, Math.min(width, 160));
+  cellH.value = Math.max(
+    cellW.value,
+    Math.min(heightRoom, Math.floor(cellW.value * 1.72), 230)
+  );
 }
 
 function positions(): Map<string, { left: number; top: number }> {
@@ -464,13 +547,34 @@ async function glide(
   );
 }
 
-async function userSwap(from: CellPos, to: CellPos) {
+function joinedCount(board: Board): number {
+  return findGroups(board).reduce((sum, group) => sum + group.cells.length, 0);
+}
+
+async function userMove(from: CellPos, to: CellPos) {
   if (busy.value || game.winOpen) return;
+  const beforeCount = joinedCount(game.view.board);
   const before = positions();
-  const result = swapTiles(game.view, from, to);
+  const result = moveGroup(game.view, from, to);
   if (!result.changed) return;
   busy.value = true;
-  sfx.swap();
+  const merged = result.steps.some(step => step.kind === "merge");
+  const grew = joinedCount(result.boardAfterSwap) > beforeCount;
+  if (grew && !merged) sfx.join();
+  else sfx.swap();
+  if (grew) {
+    const ids = new Set<string>();
+    for (const group of findGroups(result.boardAfterSwap)) {
+      for (const cell of group.cells) {
+        const tile = result.boardAfterSwap[cell.row]?.[cell.col];
+        if (tile) ids.add(tile.id);
+      }
+    }
+    snapping.value = ids;
+    window.setTimeout(() => {
+      snapping.value = new Set();
+    }, scaled(320));
+  }
   game.hinting = [];
   game.view = { ...game.view, board: result.boardAfterSwap };
   await glide(before, new Set());
@@ -549,16 +653,49 @@ async function play(steps: SettleStep[]) {
   }
 }
 
+function cellUnder(clientX: number, clientY: number): CellPos | null {
+  const board = boardEl.value;
+  const current = drag.value;
+  if (!board || !current) return null;
+  const rect = board.getBoundingClientRect();
+  const col = Math.floor((clientX - rect.left) / strideX.value);
+  const row = Math.floor((clientY - rect.top) / strideY.value);
+  if (row < 0 || col < 0 || row >= BOARD_ROWS || col >= BOARD_COLS) return null;
+  const dRow = row - current.anchorRow;
+  const dCol = col - current.anchorCol;
+  const fits = current.members.every(member => {
+    const nextRow = member.row + dRow;
+    const nextCol = member.col + dCol;
+    return (
+      nextRow >= 0 &&
+      nextCol >= 0 &&
+      nextRow < BOARD_ROWS &&
+      nextCol < BOARD_COLS
+    );
+  });
+  return fits ? { row, col } : null;
+}
+
 function onPointerDown(event: PointerEvent, placed: Placed) {
   if (busy.value || game.winOpen || game.settingsOpen) return;
   const target = event.currentTarget as HTMLElement;
   target.setPointerCapture(event.pointerId);
+  const group = groupAt(game.view.board, { row: placed.row, col: placed.col });
+  const members = (group?.cells ?? [{ row: placed.row, col: placed.col }])
+    .map(cell => {
+      const tile = game.view.board[cell.row]?.[cell.col];
+      return tile ? { id: tile.id, row: cell.row, col: cell.col } : null;
+    })
+    .filter(
+      (member): member is { id: string; row: number; col: number } =>
+        member !== null
+    );
   drag.value = {
-    id: placed.tile.id,
-    row: placed.row,
-    col: placed.col,
-    x: placed.col * stride.value,
-    y: placed.row * stride.value,
+    anchorRow: placed.row,
+    anchorCol: placed.col,
+    members,
+    dx: 0,
+    dy: 0,
     startX: event.clientX,
     startY: event.clientY,
     pointer: event.pointerId,
@@ -572,30 +709,20 @@ function onPointerMove(event: PointerEvent) {
   const dx = event.clientX - current.startX;
   const dy = event.clientY - current.startY;
   if (Math.hypot(dx, dy) > 6) current.moved = true;
-  current.x = current.col * stride.value + dx;
-  current.y = current.row * stride.value + dy;
-  if (!boardEl.value) return;
-  const rect = boardEl.value.getBoundingClientRect();
-  const col = Math.floor((event.clientX - rect.left) / stride.value);
-  const row = Math.floor((event.clientY - rect.top) / stride.value);
-  hover.value =
-    row >= 0 && col >= 0 && row < BOARD_ROWS && col < BOARD_COLS
-      ? { row, col }
-      : null;
+  current.dx = dx;
+  current.dy = dy;
+  hover.value = cellUnder(event.clientX, event.clientY);
 }
 
 async function onPointerUp(event: PointerEvent) {
   const current = drag.value;
   if (!current || event.pointerId !== current.pointer) return;
+  const dest = current.moved ? cellUnder(event.clientX, event.clientY) : null;
   drag.value = null;
   hover.value = null;
-  if (!current.moved || !boardEl.value) return;
-  const rect = boardEl.value.getBoundingClientRect();
-  const col = Math.floor((event.clientX - rect.left) / stride.value);
-  const row = Math.floor((event.clientY - rect.top) / stride.value);
-  if (row < 0 || col < 0 || row >= BOARD_ROWS || col >= BOARD_COLS) return;
-  if (!game.view.board[row]?.[col]) return;
-  await userSwap({ row: current.row, col: current.col }, { row, col });
+  if (!dest) return;
+  if (dest.row === current.anchorRow && dest.col === current.anchorCol) return;
+  await userMove({ row: current.anchorRow, col: current.anchorCol }, dest);
 }
 
 function pickPhoto() {
@@ -634,8 +761,9 @@ onMounted(() => {
     ...window.__puzzle,
     prepare: () => game.prepareMerge(),
     armWin: () => game.armWin(),
+    prepareJoin: () => game.prepareJoin(),
     swap: (rowA, colA, rowB, colB) =>
-      userSwap({ row: rowA, col: colA }, { row: rowB, col: colB }),
+      userMove({ row: rowA, col: colA }, { row: rowB, col: colB }),
     busy: () => busy.value,
     good: () => showGood.value
   };

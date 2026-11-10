@@ -3,16 +3,45 @@
 @import "@fontsource/outfit/latin-500.css";
 @import "@fontsource/outfit/latin-700.css";
 
-:root {
-  color-scheme: dark;
-  --ink: #1a120c;
-  --paper: #f6efe4;
-  --gold: #e4b15c;
-  --gold-deep: #8d6230;
-  --lacquer: #6e2a32;
-  --leaf: #2f6b4f;
-  --muted: #cbbba6;
+:root,
+[data-theme="meadow"] {
+  color-scheme: light;
+  --ink: #f4fbf6;
+  --paper: #17352c;
+  --gold: #1f9d62;
+  --gold-deep: #146b43;
+  --lacquer: #ffe08a;
+  --leaf: #1f9d62;
+  --muted: #4d6b60;
+  --panel: rgba(255, 255, 255, 0.78);
+  --card: #ffffff;
   font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+[data-theme="sunrise"] {
+  color-scheme: light;
+  --ink: #fff5ee;
+  --paper: #3d2418;
+  --gold: #ff7a59;
+  --gold-deep: #e25b3a;
+  --lacquer: #ffd0a8;
+  --leaf: #ff7a59;
+  --muted: #8a5a48;
+  --panel: rgba(255, 255, 255, 0.82);
+  --card: #fffaf6;
+}
+
+[data-theme="breeze"] {
+  color-scheme: light;
+  --ink: #f3f8ff;
+  --paper: #1b3358;
+  --gold: #3d8bfd;
+  --gold-deep: #2463c7;
+  --lacquer: #b7f3e4;
+  --leaf: #1aa88a;
+  --muted: #4d6484;
+  --panel: rgba(255, 255, 255, 0.84);
+  --card: #ffffff;
 }
 
 html,
@@ -40,21 +69,25 @@ input {
   box-sizing: border-box;
   background:
     radial-gradient(
-      900px 420px at 15% -10%,
-      rgba(228, 177, 92, 0.2),
-      transparent 55%
+      800px 360px at 10% -10%,
+      rgba(255, 255, 255, 0.9),
+      transparent 50%
     ),
     radial-gradient(
-      700px 480px at 110% 100%,
-      rgba(47, 107, 79, 0.28),
-      transparent 50%
+      700px 420px at 110% 110%,
+      color-mix(in srgb, var(--gold) 28%, transparent),
+      transparent 46%
     ),
     repeating-linear-gradient(
       135deg,
-      rgba(246, 239, 228, 0.035) 0 1px,
-      transparent 1px 14px
+      color-mix(in srgb, var(--paper) 6%, transparent) 0 1px,
+      transparent 1px 16px
     ),
-    linear-gradient(180deg, #2a1b14 0%, #140e0b 48%, #24160f 100%);
+    linear-gradient(
+      180deg,
+      var(--ink),
+      color-mix(in srgb, var(--ink) 82%, var(--gold))
+    );
 }
 
 .pd-home :focus-visible,
@@ -118,11 +151,15 @@ input {
   padding: 16px 18px;
   border: 0;
   border-radius: 22px;
-  background: linear-gradient(180deg, #f0c57a, var(--gold) 40%, #c48a3a);
-  color: #2a1a0c;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--gold) 55%, white),
+    var(--gold)
+  );
+  color: white;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 12px 0 #6d4318;
+  box-shadow: 0 10px 0 var(--gold-deep);
 }
 
 .pd-play-cta span {
@@ -139,7 +176,7 @@ input {
 }
 
 .pd-play-cta em {
-  color: #5c3d1c;
+  color: color-mix(in srgb, white 82%, var(--gold-deep));
   font-style: normal;
 }
 
@@ -178,7 +215,7 @@ input {
   padding: 10px;
   border: 0;
   border-radius: 16px;
-  background: rgba(246, 239, 228, 0.06);
+  background: color-mix(in srgb, var(--paper) 6%, white);
   text-align: left;
   cursor: pointer;
 }
@@ -200,7 +237,7 @@ input {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(228, 177, 92, 0.16);
+  background: color-mix(in srgb, var(--gold) 18%, white);
   color: var(--gold);
   font-weight: 700;
 }
@@ -215,7 +252,7 @@ input {
 }
 
 .pd-map .is-locked {
-  opacity: 0.45;
+  opacity: 0.72;
 }
 
 .pd-map button:disabled {
@@ -240,7 +277,7 @@ input {
 .pd-chip,
 .pd-quiet {
   background: transparent;
-  box-shadow: inset 0 0 0 1px rgba(246, 239, 228, 0.28);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper) 22%, transparent);
 }
 
 .pd-chip {
@@ -256,7 +293,7 @@ input {
 .pd-gold,
 .pd-action {
   background: var(--gold);
-  color: #2a1a0c;
+  color: white;
   font-weight: 700;
 }
 
@@ -273,8 +310,8 @@ input {
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: calc(8px + env(safe-area-inset-top)) 12px
-    calc(10px + env(safe-area-inset-bottom));
+  padding: calc(4px + env(safe-area-inset-top)) 8px
+    calc(6px + env(safe-area-inset-bottom));
 }
 
 .pd-top {
@@ -293,7 +330,7 @@ input {
 
 .pd-brand {
   font-family: "Fraunces", Georgia, serif;
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   font-style: italic;
   color: var(--gold);
 }
@@ -312,7 +349,7 @@ input {
 
 .pd-level-block strong {
   font-family: "Fraunces", Georgia, serif;
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   line-height: 1;
 }
 
@@ -328,8 +365,8 @@ input {
 
 .pd-icon {
   position: relative;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
 }
@@ -350,7 +387,7 @@ input {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--gold);
-  color: #2a1a0c;
+  color: white;
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 16px;
@@ -362,27 +399,28 @@ input {
 }
 
 .pd-stage {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   width: min(100%, 560px);
-  margin: 10px auto 0;
-  padding: 12px;
-  border-radius: 28px;
-  background: rgba(20, 12, 9, 0.45);
-  box-shadow: inset 0 0 0 1px rgba(228, 177, 92, 0.28);
+  min-height: 0;
+  margin: 4px auto 0;
+  padding: 6px;
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 35%, transparent);
 }
 
 .pd-stacks {
   display: grid;
-  height: 72px;
+  height: 34px;
   align-items: end;
-  margin: 0 auto 10px;
+  margin: 0 auto 4px;
 }
 
 .pd-stack {
   position: relative;
-  height: 64px;
+  height: 30px;
 }
 
 .pd-back {
@@ -390,16 +428,19 @@ input {
   left: 6px;
   right: 6px;
   bottom: 0;
-  height: 22px;
-  border-radius: 7px;
+  height: 12px;
+  border-radius: 5px;
   background:
     radial-gradient(
       circle at 50% 30%,
-      rgba(246, 239, 228, 0.45),
+      rgba(255, 255, 255, 0.75),
       transparent 36%
     ),
-    linear-gradient(#8d3b42, var(--lacquer));
-  box-shadow: inset 0 0 0 1px rgba(246, 239, 228, 0.35);
+    linear-gradient(
+      var(--lacquer),
+      color-mix(in srgb, var(--lacquer) 70%, var(--gold))
+    );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
 }
 
 .pd-stack b {
@@ -419,24 +460,24 @@ input {
   left: 0;
   top: 0;
   box-sizing: border-box;
-  border-radius: 16px;
+  border-radius: 12px;
 }
 
 .pd-slot {
-  background: rgba(0, 0, 0, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(246, 239, 228, 0.08);
+  background: color-mix(in srgb, var(--paper) 8%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--paper) 10%, transparent);
 }
 
 .pd-slot.is-target {
   box-shadow:
     inset 0 0 0 2px var(--gold),
-    0 0 18px rgba(228, 177, 92, 0.45);
+    0 0 18px color-mix(in srgb, var(--gold) 45%, transparent);
 }
 
 .pd-tile {
   padding: 0;
   border: 0;
-  background: #d9c7ae;
+  background: var(--card);
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -468,10 +509,13 @@ input {
   background:
     radial-gradient(
       circle at 50% 42%,
-      rgba(246, 239, 228, 0.4),
+      rgba(255, 255, 255, 0.7),
       transparent 28%
     ),
-    linear-gradient(#8d3b42, var(--lacquer));
+    linear-gradient(
+      var(--lacquer),
+      color-mix(in srgb, var(--lacquer) 65%, var(--gold))
+    );
 }
 
 .pd-tile img,
@@ -485,7 +529,36 @@ input {
 .pd-tile.is-lifted {
   cursor: grabbing;
   z-index: 6;
-  box-shadow: 0 18px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 18px 30px rgba(23, 53, 44, 0.28);
+}
+
+.pd-tile.is-joined {
+  z-index: 2;
+  filter: drop-shadow(0 0 3px var(--gold));
+}
+
+.pd-tile.is-join-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.pd-tile.is-join-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.pd-tile.is-join-down {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.pd-tile.is-join-up {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.pd-tile.is-snap .pd-front {
+  animation: pd-snap 280ms ease;
 }
 
 .pd-tile.is-target {
@@ -504,8 +577,8 @@ input {
   overflow: hidden;
   border-radius: 18px;
   box-shadow:
-    0 0 0 2px rgba(228, 177, 92, 0.8),
-    0 0 32px rgba(228, 177, 92, 0.45);
+    0 0 0 2px color-mix(in srgb, var(--gold) 80%, white),
+    0 0 32px color-mix(in srgb, var(--gold) 45%, transparent);
   transition:
     transform 420ms ease,
     opacity 420ms ease;
@@ -533,8 +606,8 @@ input {
   font-size: clamp(2.8rem, 11vw, 4.4rem);
   font-style: italic;
   text-shadow:
-    0 2px 0 #6d4318,
-    0 10px 24px rgba(0, 0, 0, 0.35);
+    0 2px 0 white,
+    0 10px 24px color-mix(in srgb, var(--gold) 45%, transparent);
   pointer-events: none;
 }
 
@@ -554,7 +627,7 @@ input {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(12, 8, 6, 0.62);
+  background: rgba(23, 40, 34, 0.42);
 }
 
 .pd-sheet,
@@ -564,7 +637,7 @@ input {
   overflow: auto;
   padding: 22px 18px;
   border-radius: 24px;
-  background: #2a1c16;
+  background: var(--card);
   color: var(--paper);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
 }
@@ -592,7 +665,29 @@ input {
 }
 
 .pd-stars span {
-  color: rgba(246, 239, 228, 0.25);
+  color: color-mix(in srgb, var(--paper) 22%, transparent);
+}
+
+.pd-themes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.pd-themes button {
+  min-height: 64px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--swatch-ink, #17352c);
+  background: var(--swatch, #f4fbf6);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--swatch-ink, #17352c) 16%, transparent);
+  cursor: pointer;
+}
+
+.pd-themes .is-on {
+  box-shadow: inset 0 0 0 3px var(--gold);
 }
 
 .pd-stars .is-on {
@@ -617,6 +712,18 @@ input {
 
 .pd-clear {
   position: relative;
+}
+
+@keyframes pd-snap {
+  0% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  40% {
+    box-shadow: inset 0 0 0 3px var(--gold);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
 }
 
 @keyframes pd-flip {

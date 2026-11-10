@@ -62,6 +62,13 @@ export const sfx = {
     tone(ctx, 520, now, 0.07, 0.05, "triangle");
     tone(ctx, 740, now + 0.04, 0.08, 0.04, "sine");
   },
+  join() {
+    const ctx = context();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    tone(ctx, 660, now, 0.06, 0.05, "triangle");
+    tone(ctx, 880, now + 0.05, 0.1, 0.05, "sine");
+  },
   merge() {
     const ctx = context();
     if (!ctx) return;

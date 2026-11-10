@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   createLevel,
   findCompletions,
+  findGroups,
   hintTarget,
   isLevelClear,
   magicComplete,
+  moveGroup,
   oneSwapFromMerge,
   settle,
   swapTiles
@@ -175,6 +177,120 @@ describe("settle and refill", () => {
     expect(isLevelClear(result.state)).toBe(false);
     expect(result.steps.some(step => step.kind === "win")).toBe(false);
     expect(result.state.board.some(row => row.some(Boolean))).toBe(true);
+  });
+});
+
+describe("partial groups", () => {
+  it("joins neighbours whose photo offset matches the board", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    board[2]![2] = tile("cat", 1, 0);
+    const groups = findGroups(board);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.cells).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 }
+    ]);
+  });
+
+  it("does not join a neighbour from the wrong place in the photo", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 1, 1);
+    expect(findGroups(board)).toEqual([]);
+  });
+
+  it("moves a joined pair and parks the tiles it covers in the vacated cells", () => {
+    const board = blank();
+    const left = tile("cat", 0, 0);
+    const right = tile("cat", 0, 1);
+    const coverA = tile("dog", 0, 0);
+    const coverB = tile("dog", 0, 1);
+    board[0]![0] = left;
+    board[0]![1] = right;
+    board[1]![0] = coverA;
+    board[1]![1] = coverB;
+    const result = moveGroup(
+      state(board),
+      { row: 0, col: 0 },
+      { row: 1, col: 0 }
+    );
+    expect(result.changed).toBe(true);
+    expect(result.boardAfterSwap[1]![0]?.id).toBe(left.id);
+    expect(result.boardAfterSwap[1]![1]?.id).toBe(right.id);
+    expect(result.boardAfterSwap[0]![0]?.id).toBe(coverA.id);
+    expect(result.boardAfterSwap[0]![1]?.id).toBe(coverB.id);
+  });
+
+  it("refuses a group move that would leave the board", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    const current = state(board);
+    const result = moveGroup(current, { row: 0, col: 1 }, { row: 0, col: 0 });
+    expect(result.changed).toBe(false);
+    expect(result.state.board[0]![0]?.id).toBe(board[0]![0]?.id);
+  });
+
+  it("grows a pair into the whole picture, then clears it", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("cat", 0, 1);
+    board[2]![0] = tile("cat", 1, 0);
+    board[2]![1] = tile("cat", 1, 1);
+    const grown = moveGroup(
+      state(board),
+      { row: 2, col: 0 },
+      { row: 1, col: 0 }
+    );
+    expect(findGroups(grown.boardAfterSwap)).toEqual([
+      {
+        pictureId: "cat",
+        cells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 },
+          { row: 1, col: 0 },
+          { row: 1, col: 1 }
+        ]
+      }
+    ]);
+    expect(grown.steps.some(step => step.kind === "merge")).toBe(true);
+    expect(isLevelClear(grown.state)).toBe(true);
+  });
+
+  it("joins a pair, grows it, then finishes the picture", () => {
+    const board = blank();
+    board[0]![0] = tile("cat", 0, 0);
+    board[0]![1] = tile("bird", 0, 0);
+    board[0]![2] = tile("cat", 0, 1);
+    board[0]![3] = tile("dog", 0, 0);
+    board[1]![0] = tile("bird", 0, 1);
+    board[1]![1] = tile("cat", 1, 0);
+    board[1]![2] = tile("dog", 0, 1);
+    board[1]![3] = tile("cat", 1, 1);
+    const joined = moveGroup(
+      state(board),
+      { row: 0, col: 2 },
+      { row: 0, col: 1 }
+    );
+    expect(findGroups(joined.boardAfterSwap)).toEqual([
+      {
+        pictureId: "cat",
+        cells: [
+          { row: 0, col: 0 },
+          { row: 0, col: 1 }
+        ]
+      }
+    ]);
+    const grown = moveGroup(
+      joined.state,
+      { row: 1, col: 1 },
+      { row: 1, col: 0 }
+    );
+    expect(findGroups(grown.boardAfterSwap)[0]?.cells).toHaveLength(3);
+    const done = moveGroup(grown.state, { row: 1, col: 3 }, { row: 1, col: 1 });
+    expect(done.steps.some(step => step.kind === "merge")).toBe(true);
   });
 });
 

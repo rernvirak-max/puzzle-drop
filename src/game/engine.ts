@@ -71,6 +71,163 @@ export function swapTiles(
   };
 }
 
+const NEIGHBORS: readonly CellPos[] = [
+  { row: 1, col: 0 },
+  { row: -1, col: 0 },
+  { row: 0, col: 1 },
+  { row: 0, col: -1 }
+];
+
+export interface PieceGroup {
+  pictureId: string;
+  cells: CellPos[];
+}
+
+/** Connected tiles of one picture whose board offset matches their photo offset. */
+export function findGroups(board: Board): PieceGroup[] {
+  const byPicture = new Map<
+    string,
+    { tile: Tile; row: number; col: number }[]
+  >();
+  for (let row = 0; row < board.length; row += 1) {
+    for (let col = 0; col < (board[row]?.length ?? 0); col += 1) {
+      const tile = board[row]?.[col];
+      if (!tile) continue;
+      const list = byPicture.get(tile.pictureId) ?? [];
+      list.push({ tile, row, col });
+      byPicture.set(tile.pictureId, list);
+    }
+  }
+
+  const groups: PieceGroup[] = [];
+  for (const [pictureId, cells] of byPicture) {
+    const lookup = new Map(cells.map(cell => [posKey(cell), cell]));
+    const seen = new Set<string>();
+    for (const start of cells) {
+      const startKey = posKey(start);
+      if (seen.has(startKey)) continue;
+      const stack = [start];
+      const component = [];
+      seen.add(startKey);
+      while (stack.length > 0) {
+        const current = stack.pop();
+        if (!current) break;
+        component.push(current);
+        for (const step of NEIGHBORS) {
+          const next = lookup.get(
+            posKey({
+              row: current.row + step.row,
+              col: current.col + step.col
+            })
+          );
+          if (!next || seen.has(posKey(next))) continue;
+          const localRow = next.tile.localRow - current.tile.localRow;
+          const localCol = next.tile.localCol - current.tile.localCol;
+          if (localRow !== step.row || localCol !== step.col) continue;
+          seen.add(posKey(next));
+          stack.push(next);
+        }
+      }
+      if (component.length >= 2) {
+        groups.push({
+          pictureId,
+          cells: component
+            .map(cell => ({ row: cell.row, col: cell.col }))
+            .sort(comparePos)
+        });
+      }
+    }
+  }
+  return groups;
+}
+
+export function groupAt(board: Board, anchor: CellPos): PieceGroup | null {
+  const tile = at(board, anchor);
+  if (!tile) return null;
+  const joined = findGroups(board).find(group =>
+    group.cells.some(cell => samePos(cell, anchor))
+  );
+  if (joined) return joined;
+  return { pictureId: tile.pictureId, cells: [{ ...anchor }] };
+}
+
+/**
+ * Slide the group under `anchor` so that tile lands on `dest`.
+ * Tiles underneath move into the cells the group leaves. Off-board moves are refused.
+ */
+export function moveGroup(
+  state: GameState,
+  anchor: CellPos,
+  dest: CellPos
+): MoveResult {
+  const group = groupAt(state.board, anchor);
+  if (!group || group.cells.length === 0) {
+    return unchanged(state);
+  }
+  const dRow = dest.row - anchor.row;
+  const dCol = dest.col - anchor.col;
+  if (dRow === 0 && dCol === 0) return unchanged(state);
+
+  const nextCells = group.cells.map(cell => ({
+    row: cell.row + dRow,
+    col: cell.col + dCol
+  }));
+  if (nextCells.some(cell => !inside(cell))) return unchanged(state);
+
+  const next = cloneState(state);
+  const moving = group.cells.map(cell => ({
+    from: cell,
+    tile: next.board[cell.row]?.[cell.col] ?? null
+  }));
+  for (const cell of group.cells) {
+    const row = next.board[cell.row];
+    if (row) row[cell.col] = null;
+  }
+
+  const groupKeys = new Set(group.cells.map(posKey));
+  const displaced: Tile[] = [];
+  for (const cell of nextCells) {
+    const occupant = next.board[cell.row]?.[cell.col] ?? null;
+    if (occupant && !groupKeys.has(posKey(cell))) displaced.push(occupant);
+    const row = next.board[cell.row];
+    if (row) row[cell.col] = null;
+  }
+
+  for (const item of moving) {
+    if (!item.tile) continue;
+    const row = next.board[item.from.row + dRow];
+    if (row) row[item.from.col + dCol] = item.tile;
+  }
+
+  const holes: CellPos[] = [];
+  const seenHoles = new Set<string>();
+  for (const cell of [...group.cells, ...nextCells]) {
+    const key = posKey(cell);
+    if (seenHoles.has(key)) continue;
+    if (next.board[cell.row]?.[cell.col]) continue;
+    seenHoles.add(key);
+    holes.push(cell);
+  }
+  if (displaced.length > holes.length) return unchanged(state);
+  holes.sort(comparePos);
+  for (let index = 0; index < displaced.length; index += 1) {
+    const hole = holes[index];
+    const tile = displaced[index];
+    if (!hole || !tile) continue;
+    const row = next.board[hole.row];
+    if (row) row[hole.col] = tile;
+  }
+
+  const boardAfterSwap = cloneBoard(next.board);
+  const settled = settle(next);
+  return {
+    state: settled.state,
+    changed: true,
+    boardAfterSwap,
+    steps: settled.steps
+  };
+}
+
 export function findCompletions(board: Board): Completion[] {
   const groups = new Map<string, { tile: Tile; row: number; col: number }[]>();
   for (let row = 0; row < board.length; row += 1) {
@@ -456,6 +613,27 @@ function findTile(state: GameState, pictureId: string): Tile | null {
     for (const tile of stack) if (tile.pictureId === pictureId) return tile;
   }
   return null;
+}
+
+function posKey(pos: CellPos): string {
+  return `${pos.row},${pos.col}`;
+}
+
+function samePos(a: CellPos, b: CellPos): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
+function comparePos(a: CellPos, b: CellPos): number {
+  return a.row - b.row || a.col - b.col;
+}
+
+function unchanged(state: GameState): MoveResult {
+  return {
+    state,
+    changed: false,
+    boardAfterSwap: cloneBoard(state.board),
+    steps: []
+  };
 }
 
 function at(board: Board, pos: CellPos): Tile | null {

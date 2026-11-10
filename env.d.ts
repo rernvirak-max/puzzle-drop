@@ -19,6 +19,21 @@ interface PuzzleDebug {
     from: { row: number; col: number };
     to: { row: number; col: number };
   } | null;
+  prepareJoin?: () => {
+    join: {
+      from: { row: number; col: number };
+      to: { row: number; col: number };
+    };
+    grow: {
+      from: { row: number; col: number };
+      to: { row: number; col: number };
+    };
+    finish: {
+      from: { row: number; col: number };
+      to: { row: number; col: number };
+    };
+  };
+  theme?: (id: "meadow" | "sunrise" | "breeze") => void;
   armWin?: () => {
     from: { row: number; col: number };
     to: { row: number; col: number };

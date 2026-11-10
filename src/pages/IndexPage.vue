@@ -7,8 +7,10 @@
 import { onMounted } from "vue";
 import GameScreen from "@/components/GameScreen.vue";
 import HomeScreen from "@/components/HomeScreen.vue";
+import { applyTheme, loadTheme, type ThemeId } from "@/game/theme";
 import { useGameStore } from "@/stores/game-store";
 
+loadTheme();
 const game = useGameStore();
 
 onMounted(() => {
@@ -16,7 +18,8 @@ onMounted(() => {
   window.__puzzle = {
     ...window.__puzzle,
     home: () => game.goHome(),
-    play: () => game.startLevel()
+    play: () => game.startLevel(),
+    theme: (id: ThemeId) => applyTheme(id)
   };
 });
 </script>

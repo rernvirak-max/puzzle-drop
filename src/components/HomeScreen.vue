@@ -56,10 +56,12 @@
       @click.self="game.closeSettings()"
     >
       <section class="pd-sheet" role="dialog" aria-labelledby="home-settings">
-        <h2 id="home-settings">Your photo</h2>
+        <h2 id="home-settings">Settings</h2>
+        <p>Pick a colour for the board.</p>
+        <ThemePicker />
         <p>
-          It stays on this phone and replaces the first picture when a level
-          starts.
+          Your photo stays on this phone and replaces the first picture when a
+          level starts.
         </p>
         <button type="button" class="pd-gold" @click="pickPhoto">
           Choose a photo
@@ -99,6 +101,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import ThemePicker from "@/components/ThemePicker.vue";
 import { LEVELS, levelDef } from "@/game/levels";
 import { muted, toggleMuted } from "@/game/sound";
 import { useGameStore } from "@/stores/game-store";
