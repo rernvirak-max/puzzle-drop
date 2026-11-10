@@ -228,6 +228,65 @@ describe("settle and refill", () => {
     );
     expect(ids).toHaveLength(6);
   });
+
+  it("fills a gap left by a move with gravity and the reserve stack", () => {
+    const board = blank();
+    const mover = tile("mover", 0, 0);
+    const below = tile("below", 0, 0);
+    const side = tile("side", 0, 0);
+    board[0]![0] = mover;
+    board[1]![0] = below;
+    board[0]![1] = side;
+    for (let row = 0; row < BOARD_ROWS; row += 1) {
+      for (let col = 1; col < BOARD_COLS; col += 1) {
+        if (row === 0 && col === 1) continue;
+        board[row]![col] = tile(`fill-${row}-${col}`, 0, 0);
+      }
+    }
+    const first = tile("reserve", 0, 0);
+    const second = tile("reserve", 0, 1);
+    const third = tile("reserve", 1, 0);
+    const before = [
+      ...board.flatMap(row => row.flatMap(cell => (cell ? [cell.id] : []))),
+      first.id,
+      second.id,
+      third.id
+    ];
+    const result = moveGroup(
+      state(board, [[first, second, third], [], [], []]),
+      { row: 0, col: 0 },
+      { row: 0, col: 1 }
+    );
+    expect(result.changed).toBe(true);
+    expect(result.steps.some(step => step.kind === "refill")).toBe(true);
+    expect(result.state.board.map(row => row[0]?.id ?? null)).toEqual([
+      second.id,
+      first.id,
+      side.id,
+      below.id
+    ]);
+    expect(result.state.board[0]![1]?.id).toBe(mover.id);
+    expect(result.state.stacks[0]?.map(item => item.id)).toEqual([third.id]);
+    expect(result.state.stacks[1]).toEqual([]);
+    for (let col = 0; col < BOARD_COLS; col += 1) {
+      let seenTile = false;
+      for (let row = 0; row < BOARD_ROWS; row += 1) {
+        const filled = result.state.board[row]?.[col] != null;
+        if (!filled && seenTile) {
+          throw new Error(`gap under a tile at ${row},${col}`);
+        }
+        if (filled) seenTile = true;
+      }
+    }
+    const after = [
+      ...result.state.board.flatMap(row =>
+        row.flatMap(cell => (cell ? [cell.id] : []))
+      ),
+      ...result.state.stacks.flatMap(stack => stack.map(item => item.id))
+    ];
+    expect(after).toHaveLength(before.length);
+    expect([...after].sort()).toEqual([...before].sort());
+  });
 });
 
 describe("partial groups", () => {
@@ -334,12 +393,16 @@ describe("partial groups", () => {
       }
     ]);
     const grown = moveGroup(
-      joined.state,
+      { ...joined.state, board: joined.boardAfterSwap },
       { row: 1, col: 1 },
       { row: 1, col: 0 }
     );
     expect(findGroups(grown.boardAfterSwap)[0]?.cells).toHaveLength(3);
-    const done = moveGroup(grown.state, { row: 1, col: 3 }, { row: 1, col: 1 });
+    const done = moveGroup(
+      { ...grown.state, board: grown.boardAfterSwap },
+      { row: 1, col: 3 },
+      { row: 1, col: 1 }
+    );
     expect(done.steps.some(step => step.kind === "merge")).toBe(true);
   });
 });

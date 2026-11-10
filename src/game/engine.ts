@@ -371,6 +371,10 @@ export function oneSwapFromMerge(
   return { state: placed, from: { row: 0, col: 0 }, to: donor };
 }
 
+function boardHasHoles(board: Board): boolean {
+  return board.some(row => row.some(cell => cell === null));
+}
+
 export function settle(state: GameState): {
   state: GameState;
   steps: SettleStep[];
@@ -379,16 +383,19 @@ export function settle(state: GameState): {
   let current = cloneState(state);
   for (let guard = 0; guard < 12; guard += 1) {
     const completions = findCompletions(current.board);
-    if (completions.length === 0) break;
-    steps.push({
-      kind: "merge",
-      completions,
-      board: cloneBoard(current.board)
-    });
-    for (const completion of completions) {
-      current = removePicture(current, completion.pictureId);
+    if (completions.length === 0 && !boardHasHoles(current.board)) break;
+    if (completions.length > 0) {
+      steps.push({
+        kind: "merge",
+        completions,
+        board: cloneBoard(current.board)
+      });
+      for (const completion of completions) {
+        current = removePicture(current, completion.pictureId);
+      }
     }
     const refilled = refill(current);
+    if (completions.length === 0 && refilled.falls.length === 0) break;
     current = refilled.state;
     steps.push({
       kind: "refill",

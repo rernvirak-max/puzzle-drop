@@ -97,6 +97,8 @@
           :key="`${slot.row}-${slot.col}`"
           class="pd-slot"
           :class="{ 'is-target': isTarget(slot) }"
+          :data-slot-row="slot.row"
+          :data-slot-col="slot.col"
           :style="slotStyle(slot)"
         />
         <button
@@ -360,8 +362,8 @@ const mergeStyle = computed(() => {
   return {
     left: `${block.originCol * strideX.value}px`,
     top: `${block.originRow * strideY.value}px`,
-    width: `${block.cols * cellW.value}px`,
-    height: `${block.rows * cellH.value}px`
+    width: `${block.cols * cellW.value + (block.cols - 1) * gap}px`,
+    height: `${block.rows * cellH.value + (block.rows - 1) * gap}px`
   };
 });
 
@@ -396,23 +398,6 @@ function isJoined(placed: Placed): boolean {
   );
 }
 
-function shiftOf(row: number, col: number): { x: number; y: number } {
-  let left = 0;
-  let cursor = col;
-  while (cursor > 0 && edge(row, cursor, 0, -1)) {
-    left += 1;
-    cursor -= 1;
-  }
-  let up = 0;
-  cursor = row;
-  while (cursor > 0 && edge(cursor, col, -1, 0)) {
-    up += 1;
-    cursor -= 1;
-  }
-  const seam = gap + 2;
-  return { x: -left * seam, y: -up * seam };
-}
-
 function isLifted(placed: Placed): boolean {
   return (
     drag.value?.members.some(member => member.id === placed.tile.id) ?? false
@@ -420,15 +405,15 @@ function isLifted(placed: Placed): boolean {
 }
 
 function originOf(row: number, col: number): Point {
-  const shift = shiftOf(row, col);
   return {
-    x: col * strideX.value + shift.x,
-    y: row * strideY.value + shift.y
+    x: col * strideX.value,
+    y: row * strideY.value
   };
 }
 
 function pose(point: Point, scale = 1): string {
-  return `translate(${point.x}px, ${point.y}px) scale(${scale})`;
+  const translate = `translate(${point.x}px, ${point.y}px)`;
+  return scale === 1 ? translate : `${translate} scale(${scale})`;
 }
 
 function isDragged(id: string): boolean {
@@ -449,7 +434,7 @@ function tileStyle(placed: Placed) {
     width: `${cellW.value}px`,
     height: `${cellH.value}px`,
     transform: pose(point, lifted ? 1.045 : 1),
-    zIndex: lifted ? 6 : falling ? 5 : isJoined(placed) ? 2 : 1
+    zIndex: lifted ? 6 : falling ? 5 : 1
   };
 }
 
@@ -893,6 +878,7 @@ onMounted(() => {
     prepare: () => game.prepareMerge(),
     armWin: () => game.armWin(),
     prepareJoin: () => game.prepareJoin(),
+    prepareGap: () => game.prepareGap(),
     swap: (rowA, colA, rowB, colB) =>
       userMove({ row: rowA, col: colA }, { row: rowB, col: colB }),
     busy: () => busy.value,

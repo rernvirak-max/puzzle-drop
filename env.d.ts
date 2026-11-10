@@ -19,6 +19,10 @@ interface PuzzleDebug {
     from: { row: number; col: number };
     to: { row: number; col: number };
   } | null;
+  prepareGap?: () => {
+    from: { row: number; col: number };
+    to: { row: number; col: number };
+  };
   prepareJoin?: () => {
     join: {
       from: { row: number; col: number };
