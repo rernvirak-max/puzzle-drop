@@ -2,8 +2,11 @@
   <main class="pd-play" :class="{ 'is-busy': busy }" :data-screen="screenName">
     <header class="pd-top">
       <button type="button" class="pd-brand" @click="game.goHome()">
-        <span>Kam</span>
-        <span>puzzle</span>
+        <img class="pd-logo pd-logo-sm" src="/icons/icon-192x192.png" alt="" />
+        <span class="pd-brand-text">
+          <span>Kam</span>
+          <span>puzzle</span>
+        </span>
       </button>
       <div class="pd-level-block">
         <strong>Level {{ game.levelLabel }}</strong>

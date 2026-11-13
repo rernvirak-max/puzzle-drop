@@ -2,7 +2,10 @@
   <main class="pd-home">
     <header class="pd-home-top">
       <p class="pd-eyebrow">A private picture puzzle</p>
-      <h1>Kam<em>puzzle</em></h1>
+      <h1 class="pd-home-title">
+        <img class="pd-logo" src="/icons/icon-192x192.png" alt="" />
+        <span>Kam<em>puzzle</em></span>
+      </h1>
       <p class="pd-lede">
         Swap tiles until each photograph finds its own shape.
       </p>
