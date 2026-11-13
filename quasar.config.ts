@@ -3,7 +3,7 @@
 
 import { defineConfig } from "#q-app";
 
-export default defineConfig((/* ctx */) => {
+export default defineConfig(ctx => {
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
     // preFetch: true,
@@ -37,7 +37,7 @@ export default defineConfig((/* ctx */) => {
       // https://v2.quasar.dev/quasar-cli-vite/page-routing-with-vue-router#filename-based-routing
       // filenameBasedRouting: true,
 
-      vueRouterMode: "hash" // available values: 'hash', 'history'
+      vueRouterMode: "hash", // available values: 'hash', 'history'
       // vueRouterBase,
 
       // publicPath: '/',
@@ -45,7 +45,8 @@ export default defineConfig((/* ctx */) => {
       // defineEnv: {}
       // ignorePublicFolder: true,
       // minify: false,
-      // distDir
+      // The PWA build is what Coolify serves from dist/spa.
+      ...(ctx.mode.pwa ? { distDir: "dist/spa" } : {})
 
       // extendViteConf (viteConf) {},
       // viteVuePluginOptions: {},
@@ -156,7 +157,25 @@ export default defineConfig((/* ctx */) => {
 
     // https://v2.quasar.dev/quasar-cli-vite/developing-pwa/configuring-pwa
     pwa: {
-      workboxMode: "GenerateSW" // 'GenerateSW' or 'InjectManifest'
+      workboxMode: "GenerateSW", // 'GenerateSW' or 'InjectManifest'
+      extendPWAGenerateSWOptions(cfg) {
+        // Photos are large, so cache them as they are played instead of upfront.
+        cfg.globIgnores = [...(cfg.globIgnores ?? []), "photos/**"];
+        cfg.skipWaiting = false;
+        cfg.clientsClaim = true;
+        cfg.cleanupOutdatedCaches = true;
+        cfg.runtimeCaching = [
+          {
+            urlPattern: ({ url }: { url: URL }) =>
+              url.pathname.includes("/photos/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "kampuzzle-photos",
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 60 }
+            }
+          }
+        ];
+      }
       // swFilename: 'sw.js',
       // manifestFilename: 'manifest.json',
       // extendPWAManifestJson (json) {},

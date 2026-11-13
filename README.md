@@ -1,4 +1,4 @@
-# Puzzle Drop
+# Kampuzzle
 
 A private picture-tile puzzle. The home screen lists themed levels. On the
 board, drag any tile onto any other to swap them. When a photo sits in the

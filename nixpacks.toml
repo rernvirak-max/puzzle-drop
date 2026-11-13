@@ -1,6 +1,6 @@
 [phases.setup]
 nixPkgs = ["nodejs_24"]
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["npm ci", "npm ci --prefix src-pwa"]
 [phases.build]
 cmds = ["npm run build"]

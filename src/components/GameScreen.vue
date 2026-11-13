@@ -2,8 +2,8 @@
   <main class="pd-play" :class="{ 'is-busy': busy }" :data-screen="screenName">
     <header class="pd-top">
       <button type="button" class="pd-brand" @click="game.goHome()">
-        <span>Puzzle</span>
-        <span>Drop</span>
+        <span>Kam</span>
+        <span>puzzle</span>
       </button>
       <div class="pd-level-block">
         <strong>Level {{ game.levelLabel }}</strong>
