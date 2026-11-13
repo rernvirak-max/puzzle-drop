@@ -866,7 +866,16 @@ function wait(ms: number) {
 
 let observer: ResizeObserver | null = null;
 
+// Block keyboard reloads (F5, Ctrl/Cmd+R) while a level is on screen.
+function blockReload(event: KeyboardEvent) {
+  const key = event.key.toLowerCase();
+  if (key === "f5" || ((event.ctrlKey || event.metaKey) && key === "r"))
+    event.preventDefault();
+}
+
 onMounted(() => {
+  document.documentElement.classList.add("pd-playing");
+  window.addEventListener("keydown", blockReload);
   measure();
   const watched = boardEl.value ?? stageEl.value;
   if (watched) {
@@ -891,5 +900,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   observer?.disconnect();
+  document.documentElement.classList.remove("pd-playing");
+  window.removeEventListener("keydown", blockReload);
 });
 </script>

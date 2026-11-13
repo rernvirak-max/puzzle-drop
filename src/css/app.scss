@@ -57,6 +57,12 @@ body {
   overscroll-behavior: none;
 }
 
+/* No pull-to-refresh while a level is on screen. */
+html.pd-playing,
+html.pd-playing body {
+  overscroll-behavior: none;
+}
+
 button,
 input {
   font: inherit;
