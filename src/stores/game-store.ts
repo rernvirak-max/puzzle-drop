@@ -1,13 +1,21 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
-import { createLevel, emptyBoard, oneSwapFromMerge } from "@/game/engine";
+import { computed, ref, watch } from "vue";
+import {
+  createLevel,
+  emptyBoard,
+  isLevelClear,
+  oneSwapFromMerge,
+  settle
+} from "@/game/engine";
 import { levelDef } from "@/game/levels";
 import { CATALOG, catalogPicture, publicPhoto } from "@/game/pictures";
 import { createProgressBook, type Progress } from "@/game/progress";
+import { createSessionBook } from "@/game/session";
 import type { CellPos, GameState, Tile } from "@/game/types";
 
 export const useGameStore = defineStore("game", () => {
   const book = createProgressBook();
+  const session = createSessionBook();
   const progress = ref<Progress>(book.read());
   const customUrl = ref<string | null>(null);
   const customName = ref("");
@@ -18,6 +26,20 @@ export const useGameStore = defineStore("game", () => {
   const screen = ref<"home" | "play">("home");
   const playingLevel = ref(progress.value.level);
   const view = ref<GameState>(deal(progress.value.level));
+
+  // Bring back the board the player left, so a reload never wipes a level.
+  const saved = session.read();
+  const resumed = saved ? resumable(saved.state) : null;
+  if (saved && resumed) {
+    playingLevel.value = resumed.level;
+    view.value = resumed;
+    if (saved.playing) screen.value = "play";
+  }
+
+  watch([view, screen, winOpen], () => {
+    if (winOpen.value) session.clear();
+    else session.write(view.value, screen.value === "play");
+  });
 
   const levelLabel = computed(() => playingLevel.value);
   const levelName = computed(
@@ -35,6 +57,12 @@ export const useGameStore = defineStore("game", () => {
     return createLevel({ level, pictures });
   }
 
+  function resumable(state: GameState): GameState | null {
+    if (state.level > Math.max(1, progress.value.level)) return null;
+    const settled = settle(state).state;
+    return isLevelClear(settled) ? null : settled;
+  }
+
   function restart() {
     winOpen.value = false;
     hinting.value = [];
@@ -44,7 +72,18 @@ export const useGameStore = defineStore("game", () => {
   function startLevel(level = progress.value.level) {
     const unlocked = Math.max(1, progress.value.level);
     playingLevel.value = Math.min(Math.max(1, level), unlocked);
-    restart();
+    const saved = session.read();
+    const resumed =
+      saved && saved.state.level === playingLevel.value
+        ? resumable(saved.state)
+        : null;
+    if (resumed && !customUrl.value) {
+      winOpen.value = false;
+      hinting.value = [];
+      view.value = resumed;
+    } else {
+      restart();
+    }
     screen.value = "play";
   }
 
